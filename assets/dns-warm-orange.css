@@ -1,0 +1,13 @@
+/* DNS Warm Orange - warm modern WeChat theme */
+:root{--c:#f97316;--a:#ef4444;--soft:#fff7ed;--quote:#fff7ed;--text:#2f2f2f;--border:#fed7aa;--code:#fff1f2;--code-text:#be123c}
+#wenyan{color:var(--text);font-size:16px;line-height:1.82;letter-spacing:.02em}#wenyan *{box-sizing:border-box}#wenyan p{margin:1em 0;text-align:justify}
+#wenyan a{color:var(--c);text-decoration:none;border-bottom:1px solid rgba(249,115,22,.35);word-wrap:break-word}#wenyan strong{color:var(--c);font-weight:700}
+#wenyan h1,#wenyan h2,#wenyan h3,#wenyan h4,#wenyan h5,#wenyan h6{font-weight:700;line-height:1.45;margin:1.55em 0 .8em;color:#172033}
+#wenyan h1{font-size:1.55em;text-align:center;color:var(--c)}#wenyan h1:after{content:"";display:block;width:76px;height:3px;margin:.55em auto 0;border-radius:999px;background:linear-gradient(90deg,var(--c),var(--a))}
+#wenyan h2{font-size:1.28em;padding:8px 12px;color:var(--c);border-left:5px solid var(--c);border-radius:0 10px 10px 0;background:var(--soft)}#wenyan h3{font-size:1.15em;padding-left:10px;border-left:3px solid var(--a)}
+#wenyan blockquote{margin:1.3em 0;padding:12px 16px;color:#57534e;border-left:4px solid var(--a);border-radius:10px;background:var(--quote)}#wenyan blockquote p{margin:.35em 0}
+#wenyan ul,#wenyan ol{margin:.8em 0 1em 1rem;padding-left:.8rem}#wenyan li{margin:.35em 0}#wenyan li::marker{color:var(--c)}
+#wenyan img{display:block;max-width:100%;height:auto;margin:1.2em auto;border-radius:12px}#wenyan table{display:table;width:100%;max-width:100%;margin:1.4em auto;border-collapse:collapse;table-layout:fixed;word-break:break-word}
+#wenyan th,#wenyan td{padding:9px 10px;font-size:.82em;line-height:1.55;border:1px solid var(--border)}#wenyan th{color:#9a3412;background:var(--soft);font-weight:700}#wenyan tr:nth-child(even) td{background:#fffdfa}
+#wenyan p code,#wenyan li code{margin:0 2px;padding:2px 5px;color:var(--code-text);font-size:.86em;border-radius:4px;background:var(--code)}#wenyan pre{margin:1.2em 0;padding:12px;color:#24292f;font-size:12px;line-height:1.8;border:1px solid #e7d7c3;border-radius:10px;background:#fffaf5;overflow-x:auto}#wenyan pre code{display:block;padding:0;background:transparent}
+#wenyan hr{height:1px;margin:2em 0;border:0;background:linear-gradient(90deg,transparent,var(--border),transparent)}

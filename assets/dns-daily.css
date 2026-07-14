@@ -1,0 +1,200 @@
+/*
+ * DNS Daily WeChat article theme
+ * Adapted from stable open-source WeChat Markdown theme ideas, especially
+ * Mintimate/wechat-mdeditor color-token structure and wechat-article-cli's #wenyan custom theme contract.
+ * Intended for technical WeChat articles: clean, readable, diagram-friendly.
+ */
+
+:root {
+  --dns-primary: #0366d6;
+  --dns-primary-soft: rgba(3, 102, 214, 0.1);
+  --dns-accent: #07c160;
+  --dns-text: #2f3742;
+  --dns-muted: #6b7280;
+  --dns-border: #dbeafe;
+  --dns-bg: #f8fbff;
+  --dns-code-bg: #f6f8fa;
+}
+
+#wenyan {
+  color: var(--dns-text);
+  font-size: 16px;
+  line-height: 1.82;
+  letter-spacing: 0.02em;
+}
+
+#wenyan * {
+  box-sizing: border-box;
+}
+
+#wenyan p {
+  margin: 1em 0;
+  text-align: justify;
+}
+
+#wenyan a {
+  color: var(--dns-primary);
+  border-bottom: 1px solid rgba(3, 102, 214, 0.35);
+  text-decoration: none;
+  word-wrap: break-word;
+}
+
+#wenyan strong {
+  color: var(--dns-primary);
+  font-weight: 700;
+}
+
+#wenyan h1,
+#wenyan h2,
+#wenyan h3,
+#wenyan h4,
+#wenyan h5,
+#wenyan h6 {
+  color: #172033;
+  font-weight: 700;
+  line-height: 1.45;
+  margin: 1.6em 0 0.8em;
+}
+
+#wenyan h1 {
+  color: var(--dns-primary);
+  font-size: 1.55em;
+  text-align: center;
+}
+
+#wenyan h1::after {
+  content: "";
+  display: block;
+  width: 72px;
+  height: 3px;
+  margin: 0.55em auto 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--dns-primary), var(--dns-accent));
+}
+
+#wenyan h2 {
+  display: block;
+  padding: 8px 12px;
+  color: var(--dns-primary);
+  font-size: 1.28em;
+  border-left: 5px solid var(--dns-primary);
+  border-radius: 0 10px 10px 0;
+  background: var(--dns-primary-soft);
+}
+
+#wenyan h3 {
+  color: #1f2937;
+  font-size: 1.15em;
+  padding-left: 10px;
+  border-left: 3px solid var(--dns-accent);
+}
+
+#wenyan h4,
+#wenyan h5,
+#wenyan h6 {
+  font-size: 1.05em;
+}
+
+#wenyan blockquote {
+  margin: 1.3em 0;
+  padding: 12px 16px;
+  color: #4b5563;
+  border-left: 4px solid var(--dns-accent);
+  border-radius: 10px;
+  background: #f3fbf7;
+}
+
+#wenyan blockquote p {
+  margin: 0.35em 0;
+}
+
+#wenyan > ul,
+#wenyan > ol {
+  padding-left: 1.2rem;
+}
+
+#wenyan ul,
+#wenyan ol {
+  margin: 0.8em 0 1em 1rem;
+  padding-left: 0.6rem;
+}
+
+#wenyan li {
+  margin: 0.35em 0;
+}
+
+#wenyan li::marker {
+  color: var(--dns-primary);
+}
+
+#wenyan img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.2em auto;
+  border-radius: 12px;
+}
+
+#wenyan table {
+  display: table;
+  width: 100%;
+  max-width: 100%;
+  margin: 1.4em auto;
+  border-collapse: collapse;
+  table-layout: fixed;
+  word-break: break-word;
+  overflow: auto;
+}
+
+#wenyan table th,
+#wenyan table td {
+  padding: 9px 10px;
+  font-size: 0.82em;
+  line-height: 1.55;
+  border: 1px solid #d9e5f6;
+}
+
+#wenyan table th {
+  color: #17345c;
+  font-weight: 700;
+  background: #eef6ff;
+}
+
+#wenyan table tr:nth-child(even) td {
+  background: #fbfdff;
+}
+
+#wenyan p code,
+#wenyan li code {
+  margin: 0 2px;
+  padding: 2px 5px;
+  color: #be123c;
+  font-size: 0.86em;
+  border-radius: 4px;
+  background: #fff1f2;
+}
+
+#wenyan pre {
+  margin: 1.2em 0;
+  padding: 12px;
+  color: #24292f;
+  font-size: 12px;
+  line-height: 1.8;
+  border: 1px solid #d8dee4;
+  border-radius: 10px;
+  background: var(--dns-code-bg);
+  overflow-x: auto;
+}
+
+#wenyan pre code {
+  display: block;
+  padding: 0;
+  background: transparent;
+}
+
+#wenyan hr {
+  height: 1px;
+  margin: 2em 0;
+  border: 0;
+  background: linear-gradient(90deg, transparent, var(--dns-border), transparent);
+}

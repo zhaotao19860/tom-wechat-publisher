@@ -1,0 +1,21 @@
+# Python and macOS local artifacts
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Local credentials and runtime output
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+*.bak
+
+# Generated previews and comparison output
+preview*.html
+body-image-comparison/
+
+# Local article assets should stay outside the public Skill repository
+images/
+output/
+work/

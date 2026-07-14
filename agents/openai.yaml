@@ -1,0 +1,4 @@
+interface:
+  display_name: "WeChat Draft Publisher"
+  short_description: "Prepare, validate, preview, and explicitly create WeChat drafts"
+  default_prompt: "Use $tom-wechat-publisher to prepare and preview this Markdown article for WeChat. First write an original two-line or four-line poem, then generate the Chinese painting, calligraphy, seal, and negative space as one integrated AI cover. Reject panels or pasted-on text. Verify every character and use image-to-image repair before any transparent deterministic fallback. Do not upload unless I explicitly authorize draft creation."
