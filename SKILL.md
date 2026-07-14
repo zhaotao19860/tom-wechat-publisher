@@ -1,13 +1,13 @@
 ---
 name: tom-wechat-publisher
-description: Prepare, validate, preview, and explicitly upload Markdown articles to a WeChat Official Account draft box. Trigger for 公众号, 微信公众号, 草稿箱, Markdown/md 公众号排版, 草稿上传, 封面处理, 正文图片兼容, 公众号预览, or troubleshooting WeChat media and draft API errors such as 40113. Do not trigger for article writing alone, standalone illustration generation, GitHub Pages publishing, or mass sending. This skill may create drafts only after explicit user authorization; it must never publish or mass-send.
+description: Generate, polish, illustrate, prepare, validate, preview, and explicitly upload WeChat Official Account draft articles. Trigger whenever the user asks to turn a URL, web announcement, local file, meeting notes, conversation, summary, or topic brief into a WeChat article, or mentions 公众号, 微信公众号, 草稿箱, Markdown/md 公众号排版, 草稿上传, 封面处理, 正文图片兼容, 公众号预览, or WeChat media errors such as 40113. It supports source-grounded article generation, direct conversation/context-to-article workflows, local Markdown preparation, AI Chinese-painting covers, deterministic factual infographics, and draft-only upload. Do not trigger for standalone illustration generation, GitHub Pages publishing, or mass sending. This skill may create drafts only after explicit user authorization; it must never publish or mass-send.
 ---
 
 # WeChat Draft Publisher
 
 ## Purpose
 
-Use this skill to prepare a local Markdown article for WeChat, render it with the installed Wenyan CLI, inspect the exact themed output, and optionally create a WeChat draft through Wenyan's draft-only publishing path.
+Use this skill to turn a URL, local source file, conversation, meeting note, summary, or topic brief into a grounded WeChat article, or to prepare an existing Markdown article. The workflow can generate and inspect the article's cover and body illustrations, render the exact themed output with the installed Wenyan CLI, and optionally create a WeChat draft through Wenyan's draft-only publishing path.
 
 The default workflow stops after preparation and preview. Creating a draft is a side effect and requires explicit user authorization in the current request.
 
@@ -17,12 +17,15 @@ Use `赵涛` as the default article author. Resolve author precedence as `--auth
 
 This skill can:
 
-1. Normalize Markdown metadata and local image references.
-2. Convert unsupported local images into WeChat-compatible formats.
-3. Validate the article, cover, and body images before upload.
-4. Render one or more local HTML previews with bundled themes.
-5. Create a WeChat draft through an explicitly configured upload command.
-6. Diagnose failures by stage: preflight, image preparation, rendering, media upload, or draft creation.
+1. Generate a grounded article from a URL, local text/Markdown source, conversation context, meeting notes, summary, or topic brief.
+2. Enrich source material with optional web search and preserve uncertainty instead of inventing facts.
+3. Generate and route the cover and body illustrations according to factual risk.
+4. Normalize Markdown metadata and local image references.
+5. Convert unsupported local images into WeChat-compatible formats.
+6. Validate the article, cover, and body images before upload.
+7. Render one or more local HTML previews with bundled themes.
+8. Create a WeChat draft through an explicitly configured upload command.
+9. Diagnose failures by stage: source ingestion, fact extraction, image generation, preflight, preparation, rendering, media upload, or draft creation.
 
 This skill must not:
 

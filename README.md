@@ -1,14 +1,15 @@
 # tom-wechat-publisher
 
-一个面向微信公众号文章的 Markdown 准备、图片校验、主题预览和草稿创建 Skill。
+一个面向微信公众号内容全流程的 Skill：它可以从 URL、网页公告、本地素材、会议纪要、对话或主题摘要生成文章，也可以处理已有 Markdown，完成配图、校验、主题预览和草稿创建。
 
-它把一篇本地 Markdown 文章处理成适合微信公众号的素材：规范化 frontmatter，准备封面和正文图片，渲染主题预览，并在用户明确授权后通过 Wenyan 创建公众号草稿。
+它覆盖两条入口：一条是“内容生成”入口，把外部来源或当前对话中的素材整理成文章；另一条是“文章准备”入口，把已有 Markdown 规范化为适合微信公众号的素材。两条入口最终都会经过事实核对、图片处理、主题预览，并在用户明确授权后通过 Wenyan 创建公众号草稿。
 
 > 该 Skill 只创建草稿，不发布、不群发。`--upload` 是外部副作用开关，必须由用户明确请求时才使用。
 
 ## 目录
 
 - [它解决什么问题](#它解决什么问题)
+- [支持的输入](#支持的输入)
 - [Skill 构成](#skill-构成)
 - [工作原理](#工作原理)
 - [安全边界](#安全边界)
@@ -35,6 +36,60 @@
 6. 微信媒体接口失败时，需要区分预处理、渲染、媒体上传和草稿创建阶段。
 
 本 Skill 将这些步骤串成一个可复用的本地工作流，并保留人工确认点。
+
+## 支持的输入
+
+### 1. URL 或网页来源
+
+适合安全公告、技术博客、行业新闻、政策文件和产品发布页：
+
+```bash
+bash ./scripts/publish_draft.sh \
+  --generate-from "https://example.com/security-advisory" \
+  --out-dir ./output/bind-advisory \
+  --topic "DNS 安全漏洞解读" \
+  --markdown \
+  --no-images
+```
+
+生成器会抓取来源、提取候选事实，并可用 `--search-query` 进行补充检索。网页抓取受 403、登录、反爬和 JavaScript 页面影响时，应先把内容保存为本地文件再运行。
+
+### 2. 本地文件或素材
+
+`--generate-from` 支持本地 Markdown、纯文本和其他可读取的文本材料。它可以处理原始摘录、会议纪要、研究笔记、产品说明和人工整理的素材：
+
+```bash
+bash ./scripts/publish_draft.sh \
+  --generate-from ./notes/meeting-summary.txt \
+  --out-dir ./output/article \
+  --topic "把会议结论写成公众号文章" \
+  --markdown \
+  --no-images
+```
+
+如果输入本身已经是结构完整的 Markdown，生成器会尽量保留定稿内容，把主要工作放在图片规格和配图生成；普通文本则会根据事实池和主题提示组织为文章结构。
+
+### 3. 当前对话、摘要或主题 brief
+
+在 Comate 中，不必先手工创建 Markdown 文件。可以直接提供一段对话、会议总结、素材摘录或主题要求，例如：
+
+```text
+请把下面这段关于 BIND 9 漏洞的对话整理成一篇公众号文章，作者写赵涛，补充官方资料，生成封面和正文图，先预览不要上传。
+```
+
+对话入口由 Comate Skill 负责把当前上下文整理成生成输入，然后复用 URL/本地素材的同一套流程：提取事实、补充来源、生成文章、生成图片、人工检查和主题预览。直接来自对话的事实仍需区分“用户提供的信息”和“已由公开来源验证的信息”，不能把摘要中的推测自动写成确定事实。
+
+### 4. 已有 Markdown
+
+已有 `article.md` 时，可以跳过文章生成，直接进入准备、预览和草稿流程：
+
+```bash
+bash ./scripts/publish_draft.sh \
+  ./article.md \
+  --theme dns-sakura \
+  --no-open-preview \
+  --keep-temp
+```
 
 ## Skill 构成
 
@@ -186,6 +241,15 @@ wenyan --version
 
 如果只使用已经生成好的 Markdown 和图片，也可以跳过文章生成相关的可选依赖。
 
+文章生成并自动配图时还需要 Comate 的 `create-image` Skill。默认脚本会从当前用户的 `~/.comate/skills/.system/`、`~/.agents/skills/.system/` 或 `~/.codex/skills/.system/` 中自动查找；也可以显式指定：
+
+```bash
+export TOM_WECHAT_CREATE_IMAGE_BASH="/path/to/create-image/scripts/generate-image.sh"
+export TOM_WECHAT_CREATE_IMAGE_PS1="/path/to/create-image/scripts/generate-image.ps1"
+```
+
+不要把 `COMATE_USERNAME_ENCRYPTED` 或其他图片服务凭据写入仓库。
+
 ## 凭据配置
 
 ### 预览
@@ -290,7 +354,7 @@ publish_draft.sh article.md
 
 ### 文章生成
 
-可以把 URL 或本地来源交给可选生成流程：
+文章生成不是附加功能，而是本 Skill 的核心入口之一。可以把 URL、本地文本、会议纪要、摘要或人工整理的素材交给生成流程：
 
 ```bash
 bash ./scripts/publish_draft.sh \

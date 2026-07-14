@@ -46,18 +46,22 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent  # tom-wechat-publisher/
 
 # Nano Banana Pro wrapper from the create-image skill. macOS/Linux only here.
-CREATE_IMAGE_BASH = Path(
-    os.environ.get(
-        "TOM_WECHAT_CREATE_IMAGE_BASH",
-        "/Users/tom/.comate/skills/.system/create-image/scripts/generate-image.sh",
-    )
-)
-CREATE_IMAGE_PS1 = Path(
-    os.environ.get(
-        "TOM_WECHAT_CREATE_IMAGE_PS1",
-        "/Users/tom/.comate/skills/.system/create-image/scripts/generate-image.ps1",
-    )
-)
+# Prefer an explicit override, then discover common Comate skill locations without
+# embedding a machine-specific home directory in the public repository.
+def _create_image_path(env_name: str, filename: str) -> Path:
+    override = os.environ.get(env_name, "").strip()
+    if override:
+        return Path(override).expanduser()
+    candidates = [
+        Path.home() / ".comate" / "skills" / ".system" / "create-image" / "scripts" / filename,
+        Path.home() / ".agents" / "skills" / ".system" / "create-image" / "scripts" / filename,
+        Path.home() / ".codex" / "skills" / ".system" / "create-image" / "scripts" / filename,
+    ]
+    return next((candidate for candidate in candidates if candidate.exists()), candidates[0])
+
+
+CREATE_IMAGE_BASH = _create_image_path("TOM_WECHAT_CREATE_IMAGE_BASH", "generate-image.sh")
+CREATE_IMAGE_PS1 = _create_image_path("TOM_WECHAT_CREATE_IMAGE_PS1", "generate-image.ps1")
 
 # Visual style guide passed to Nano Banana Pro via /create-image.
 # Body illustrations must explain the article, not merely decorate it. The model
