@@ -60,10 +60,13 @@ bash ~/.comate/skills/tom-wechat-publisher/scripts/publish_draft.sh \
   --cover /absolute/path/cover.jpg \
   --author "赵涛" \
   --theme dns-sakura \
-  --keep-temp
+  --require-body-images \
+  --preview-dir /absolute/path/preview \
+  --no-open-preview
 ```
 
-This is the default and performs no upload.
+This is the default and performs no upload. `--preview-dir` keeps `preview.html`
+and all referenced local images outside the temporary staging directory.
 
 ### Compare themes
 
@@ -100,15 +103,17 @@ The wrapper must return a non-zero exit code when Wenyan fails. Output containin
 
 The wrapper must verify:
 
-- `python3` is available.
+- Python 3.9 or newer is available. `TOM_WECHAT_PYTHON` may select a specific executable.
 - The source Markdown exists and is readable.
 - Local Markdown and HTML image references resolve.
-- The cover exists when supplied.
+- The cover exists locally and the mandatory AI cover metadata contract is valid.
 - Prepared images are JPEG, PNG, or GIF.
+- High-risk HTML/hybrid specs contain `locked_facts`, and body labels are article-specific.
 - Wenyan CLI is installed and executable for preview and upload.
 - Upload is not attempted with `--dry-run`, `--render-only`, or theme-preview mode.
 
 Use `--keep-temp` while diagnosing problems. Temporary output otherwise belongs under the system temporary directory and is removed on exit.
+Failure notifications are disabled by default. Set `TOM_WECHAT_FAILURE_NOTIFY` to an explicit 如流 recipient to opt in.
 
 ## Optional Content Tools
 
@@ -199,6 +204,8 @@ After the article is finalized, identify only the concepts that materially reduc
 
 Do not illustrate every heading. A normal technical article should use 3-4 body images with different information structures.
 
+For technical articles, make the first body image an editorial visual anchor: place one `ai` + `low` Ian Xiaohei illustration before the first `##` heading. 小黑 must perform the article's central action on a pure-white hand-drawn scene. Put exact versions, CVE identifiers, commands, tables, and checklists in later deterministic HTML or hybrid images. `validate_body_images.py` rejects any article whose first body image is not an Ian Xiaohei `ai` + `low` slot.
+
 ### Choose a visual structure
 
 Select the structure from the content rather than asking the user to pick a mode:
@@ -215,11 +222,11 @@ Select the structure from the content rather than asking the user to pick a mode
 
 Assign every image one `render_mode` and one `fact_risk`:
 
-- `ai` + `low`: spatial relationship, event scene, metaphor, atmosphere, state change. Use no text or at most 3-5 short labels.
+- `ai` + `low`: delegate the complete body illustration to `ian-xiaohei-illustrations`. Use Ian's pure-white, minimalist black hand-drawn visual DNA; 小黑 must perform the core conceptual action. Use no text or at most 3-5 short Chinese labels, and run Ian's QA checklist. Ian invokes `create-image` as its image backend.
 - `html` + `high`: versions, numbers, commands, configuration, code paths, long labels, tables, timelines, and checklists. Render all facts deterministically.
-- `hybrid` + `medium/high`: mechanism, architecture, or attack path that needs visual material plus exact labels. Generate the central scene with AI, then add locked labels, arrows, numbers, and captions deterministically.
+- `hybrid` + `medium/high`: mechanism, architecture, or attack path that needs visual material plus exact labels. Keep the current deterministic HTML/hybrid route; do not delegate locked facts to Ian or any free-form image prompt.
 
-The image model may create material, depth, icons, objects, lighting, and atmosphere. It must not infer or rewrite exact data.
+For low-risk AI body slots, `tom-wechat-publisher` owns article selection and fact-risk classification, while `ian-xiaohei-illustrations` owns the shot metaphor, 小黑 action, prompt construction, `create-image` invocation, and Ian QA. The cover remains on the mandatory Chinese-painting workflow. The image model must not infer or rewrite exact data.
 
 ### Deterministic Swiss HTML layouts
 
@@ -244,6 +251,9 @@ Each body image specification must include:
 {
   "render_mode": "ai | html | hybrid",
   "fact_risk": "low | medium | high",
+  "illustration_backend": "ian-xiaohei-illustrations | html-render | create-image",
+  "rendered_by": "actual backend recorded after generation",
+  "overlay_applied": false,
   "structure": "pipeline | layer-stack | hub-and-spoke | before-after | data-first | text-scene | checklist",
   "purpose": "what reader confusion this image resolves",
   "labels": ["3-5 short labels when needed"],
@@ -253,6 +263,21 @@ Each body image specification must include:
 ```
 
 Labels inside AI-generated pixels should normally be 2-5 Chinese characters. Put explanatory sentences in the article or deterministic overlay. English code identifiers belong in deterministic layers unless visual generation is specifically being repaired and OCR-verified.
+
+### Enforced body-image gate
+
+Body illustration planning is a required execution stage for technical articles, not an optional note. After the Markdown is finalized and before preview:
+
+1. Run `image_spec.py` to create `image_specs.json`.
+2. Keep 3-4 body slots by default; select cognitive anchors rather than mirroring every heading.
+3. Put the Ian Xiaohei `ai` + `low` scene first in the Markdown, before the first level-two heading; render or generate the remaining factual images after it.
+4. Render or generate the selected body images and insert their local Markdown references.
+5. Run `validate_body_images.py` and reject missing specs, missing local files, stale filename mappings, misplaced images, a non-Ian first body image, or fewer than three body images.
+6. For `ai + low`, require `illustration_backend: ian-xiaohei-illustrations` and a matching `rendered_by` value before preview.
+7. For `hybrid`, require `overlay_applied: true` before preview; a bare AI base is not a finished hybrid image.
+8. Run OCR and visual QA for locked labels, then render the WeChat preview.
+
+The preview command should include `--require-body-images` for technical articles. A successful cover-only preview must be reported as incomplete, never as a fully prepared illustrated article.
 
 ### Article-level mix
 
@@ -278,7 +303,8 @@ For `hybrid` images:
 Before upload, inspect all generated or converted images:
 
 - Verify the cover is AI-generated and visibly follows the selected Chinese painting style.
-- Verify every body image matches its declared `render_mode`, `fact_risk`, and `locked_facts`.
+- Verify every body image matches its declared `render_mode`, `fact_risk`, `illustration_backend`, `rendered_by`, and `locked_facts`.
+- For Ian slots, apply `ian-xiaohei-illustrations/references/qa-checklist.md`: pure white background, 小黑 as the core action, large blank space, sparse short labels, and no PPT/card-grid appearance.
 - Reject garbled, duplicated, clipped, off-topic, or incorrectly connected labels.
 - Confirm exact numbers, versions, code paths, category order, and configuration strings against the article.
 - Confirm label positions point to the intended object or flow.

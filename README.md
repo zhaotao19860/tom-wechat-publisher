@@ -223,9 +223,15 @@ bash ./scripts/publish_draft.sh /absolute/path/article.md --render-only
 
 基本准备和预览需要：
 
-- Python 3；
+- Python 3.9 或更高版本；
 - Node.js 与 Wenyan CLI；
 - macOS 的 `sips`，用于将不兼容图片转换为 PNG。
+
+默认使用 `python3`。需要固定解释器时，设置 `TOM_WECHAT_PYTHON`，例如：
+
+```bash
+export TOM_WECHAT_PYTHON=/usr/bin/python3
+```
 
 macOS OCR 校验还需要：
 
@@ -301,8 +307,12 @@ bash ./scripts/publish_draft.sh \
   --cover /absolute/path/cover.jpg \
   --author "赵涛" \
   --theme dns-sakura \
-  --keep-temp
+  --require-body-images \
+  --preview-dir /absolute/path/preview \
+  --no-open-preview
 ```
+
+`--preview-dir` 会持久保存 `preview.html` 及其引用的本地图片，不依赖稍后会被清理的临时目录。准备阶段会自动校验本地封面文件、`cover_generation`、国画风格、题诗行数和排版字段。
 
 ### 比较多个主题
 
@@ -344,11 +354,13 @@ publish_draft.sh article.md
   --theme THEME
   --highlight THEME
   --preview-themes
+  --preview-dir DIR
   --no-open-preview
   --render-only
   --dry-run
   --keep-temp
   --theme-selection-confirmed
+  --require-body-images
   --upload
 ```
 
@@ -404,6 +416,22 @@ python3 ./scripts/html_render.py image_specs.json \
 python3 ./scripts/compare_body_images.py image_specs.json \
   --out-dir ./body-image-comparison \
   --skip-ai
+```
+
+技术文章在预览前执行正文图门禁：
+
+```bash
+bash ./scripts/publish_draft.sh article.md \
+  --require-body-images \
+  --theme dns-sakura
+```
+
+该门禁要求 `image_specs.json` 至少包含 3 个正文图规格，并检查文章中的本地图片引用、规格映射和所在章节是否一致。高风险 `html`/`hybrid` 规格必须提供 `locked_facts`，泛化标签会被拒绝；`hybrid` 图片还必须标记 `overlay_applied: true`。仅生成封面的技术文章不得报告为完整图文稿。
+
+失败通知默认关闭，避免一次本地校验失败产生隐式外部消息。需要通知时显式设置接收人：
+
+```bash
+export TOM_WECHAT_FAILURE_NOTIFY="your-infoflow-user"
 ```
 
 ### OCR 校验

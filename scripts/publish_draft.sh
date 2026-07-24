@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  publish_draft.sh article.md [--title "Title"] [--cover cover.jpg] [--author "Name"] [--theme theme] [--highlight theme] [--preview-themes] [--no-open-preview] [--render-only] [--dry-run] [--keep-temp] [--theme-selection-confirmed] [--upload]
+  publish_draft.sh article.md [--title "Title"] [--cover cover.jpg] [--author "Name"] [--theme theme] [--highlight theme] [--preview-themes] [--preview-dir DIR] [--no-open-preview] [--render-only] [--dry-run] [--keep-temp] [--theme-selection-confirmed] [--require-body-images] [--upload]
   publish_draft.sh --generate-from SOURCE [--topic "..."] [--out-dir DIR] [--search-query "..."] [--image-visual-theme THEME] [--image-theme-selection-confirmed] [--no-search] [--no-images] [--markdown] [--humanize]
   publish_draft.sh --humanize article.md [--in-place] [--score] [--json]
 
@@ -33,6 +33,8 @@ Environment:
   COMATE_USERNAME_ENCRYPTED      optional for /create-image; auto-derived from ~/.comate/login-user when missing
   TOM_WECHAT_CREATE_IMAGE_BASH   override path to the create-image wrapper
   TOM_WECHAT_CREATE_IMAGE_PS1    override path to the create-image PowerShell wrapper
+  TOM_WECHAT_PYTHON              optional Python executable override; Python 3.9+ is required
+  TOM_WECHAT_FAILURE_NOTIFY      optional 如流 recipient for failure alerts; disabled by default
 
 This wrapper prepares WeChat-compatible Markdown/images and renders with Wenyan by default.
 Draft creation requires explicit --upload. It never publishes or mass-sends.
@@ -48,8 +50,7 @@ skill_dir="$(cd "$script_dir/.." && pwd)"
 # On any non-zero exit during actual work (generate / humanize / prepare /
 # preview / upload), send a best-effort 如流 single-chat message to the
 # configured recipient so silent background failures surface immediately.
-#   * Override recipient with TOM_WECHAT_FAILURE_NOTIFY (default: zhaotao02).
-#   * Disable by exporting TOM_WECHAT_FAILURE_NOTIFY="".
+#   * Opt in by setting TOM_WECHAT_FAILURE_NOTIFY to a recipient.
 #   * Best-effort: if infoflow-message-group is missing or unconfigured, the
 #     trap logs a notice and still exits with the original status.
 wechat_failure_err_log="$(mktemp "${TMPDIR:-/tmp}/wechat-draft.err.XXXXXX")"
@@ -61,7 +62,7 @@ send_infoflow_failure() {
     rm -f "$wechat_failure_err_log" 2>/dev/null || true
     return 0
   fi
-  local recipient="${TOM_WECHAT_FAILURE_NOTIFY-zhaotao02}"
+  local recipient="${TOM_WECHAT_FAILURE_NOTIFY:-}"
   local infoflow_dir="$HOME/.comate/skills/infoflow-message-group"
   local err_tail=""
   if [[ -s "$wechat_failure_err_log" ]]; then
@@ -109,7 +110,9 @@ open_preview=1
 dry_run=0
 keep_temp=0
 theme_selection_confirmed=0
+require_body_images=0
 upload=0
+persistent_preview_dir=""
 
 # Generate-mode state
 generate_from=""
@@ -166,6 +169,14 @@ while [[ $# -gt 0 ]]; do
       open_preview=0
       shift
       ;;
+    --preview-dir)
+      persistent_preview_dir="${2:-}"
+      if [[ -z "$persistent_preview_dir" ]]; then
+        echo "ERROR: --preview-dir requires a directory" >&2
+        exit 2
+      fi
+      shift 2
+      ;;
     --render-only)
       render_only=1
       shift
@@ -188,6 +199,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --theme-selection-confirmed)
       theme_selection_confirmed=1
+      shift
+      ;;
+    --require-body-images)
+      require_body_images=1
       shift
       ;;
     --image-visual-theme)
@@ -265,13 +280,30 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+resolve_python() {
+  local requested="${TOM_WECHAT_PYTHON:-python3}"
+  local executable=""
+  if [[ "$requested" == */* ]]; then
+    [[ -x "$requested" ]] && executable="$requested"
+  else
+    executable="$(command -v "$requested" 2>/dev/null || true)"
+  fi
+  if [[ -z "$executable" ]]; then
+    echo "ERROR: Python executable not found: $requested" >&2
+    return 127
+  fi
+  if ! "$executable" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'; then
+    echo "ERROR: Python 3.9+ is required: $executable" >&2
+    return 2
+  fi
+  printf '%s\n' "$executable"
+}
+
+PYTHON="$(resolve_python)"
+
 # ---- humanize mode ---------------------------------------------------------
 if [[ -n "$humanize_path" ]]; then
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "ERROR: python3 is required for --humanize" >&2
-    exit 127
-  fi
-  humanize_cmd=(python3 "$script_dir/humanize_article.py" "$humanize_path")
+  humanize_cmd=("$PYTHON" "$script_dir/humanize_article.py" "$humanize_path")
   if [[ "$humanize_in_place" -eq 1 ]]; then
     humanize_cmd+=(--in-place)
   fi
@@ -292,17 +324,13 @@ if [[ -n "$generate_from" ]]; then
     echo "ERROR: --generate-from requires --out-dir" >&2
     exit 2
   fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "ERROR: python3 is required for --generate-from" >&2
-    exit 127
-  fi
   date_prefix="$(date +%Y-%m%d)"
   out_parent="$(dirname "$generate_out_dir")"
   out_base="$(basename "$generate_out_dir")"
   if [[ ! "$out_base" =~ ^[0-9]{4}-[0-9]{4}- ]]; then
     generate_out_dir="$out_parent/$date_prefix-$out_base"
   fi
-  gen_cmd=(python3 "$script_dir/generate_article.py"
+  gen_cmd=("$PYTHON" "$script_dir/generate_article.py"
     "--source" "$generate_from"
     "--out-dir" "$generate_out_dir"
     "--topic" "$generate_topic"
@@ -345,7 +373,7 @@ THEMES
     if [[ -f "$generated_md" ]]; then
       printf '\n[humanize] stripping AI tells from %s ...\n' "$generated_md" >&2
       wechat_failure_context="humanize: ${generated_md} (after generate-from: ${generate_from})"
-      python3 "$script_dir/humanize_article.py" "$generated_md" --in-place
+      "$PYTHON" "$script_dir/humanize_article.py" "$generated_md" --in-place
     fi
   fi
 
@@ -370,14 +398,20 @@ if ! command -v wenyan >/dev/null 2>&1; then
 fi
 
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "ERROR: python3 command not found" >&2
-  exit 127
-fi
-
 if ! command -v sips >/dev/null 2>&1; then
   echo "ERROR: sips command not found; it is required to convert unsupported local images to PNG" >&2
   exit 127
+fi
+
+if [[ "$require_body_images" -eq 1 ]]; then
+  article_dir="$(cd "$(dirname "$article")" && pwd)"
+  image_specs="$article_dir/image_specs.json"
+  if [[ ! -f "$image_specs" ]]; then
+    echo "ERROR: --require-body-images needs $image_specs; run image_spec.py after the article is finalized." >&2
+    exit 2
+  fi
+  wechat_failure_context="body-image-preflight: ${article}"
+  "$PYTHON" "$script_dir/validate_body_images.py" "$article" --spec "$image_specs" --min 3 >&2
 fi
 
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/wechat-draft.XXXXXX")"
@@ -399,7 +433,7 @@ if [[ ! -f "$theme_file" ]]; then
   echo "ERROR: theme not found: $theme" >&2
   exit 2
 fi
-prepare_cmd=(python3 "$script_dir/prepare_wechat_md.py" "$article" --output "$prepared_file")
+prepare_cmd=("$PYTHON" "$script_dir/prepare_wechat_md.py" "$article" --output "$prepared_file")
 if [[ -n "$title" ]]; then
   prepare_cmd+=(--title "$title")
 fi
@@ -413,9 +447,12 @@ fi
 wechat_failure_context="prepare-wechat-md: ${article}"
 "${prepare_cmd[@]}" >&2
 
+wechat_failure_context="article-asset-preflight: ${article}"
+"$PYTHON" "$script_dir/validate_article_assets.py" "$prepared_file" >&2
+
 if [[ "$preview_themes" -eq 1 ]]; then
   preview_dir="$work_dir"
-  preview_theme_output="$(TOM_WECHAT_PREVIEW_THEMES="${TOM_WECHAT_PREVIEW_THEMES:-}" TOM_WECHAT_PREVIEW_THEME_COUNT="${TOM_WECHAT_PREVIEW_THEME_COUNT:-5}" python3 - <<'PY'
+  preview_theme_output="$(TOM_WECHAT_PREVIEW_THEMES="${TOM_WECHAT_PREVIEW_THEMES:-}" TOM_WECHAT_PREVIEW_THEME_COUNT="${TOM_WECHAT_PREVIEW_THEME_COUNT:-5}" "$PYTHON" - <<'PY'
 import os
 
 fallback_themes = ["dns-elegant-purple", "dns-aurora-cyan", "dns-warm-orange", "dns-ocean", "dns-sakura"]
@@ -461,7 +498,7 @@ PY
   preview_outputs=()
   for preview_theme in "${preview_theme_ids[@]}"; do
     preview_output="$preview_dir/article.${preview_theme}.html"
-    python3 "$script_dir/render_article_preview.py" --article "$prepared_file" --output "$preview_output" --theme "$preview_theme"
+    "$PYTHON" "$script_dir/render_article_preview.py" --article "$prepared_file" --output "$preview_output" --theme "$preview_theme"
     preview_outputs+=("$preview_output")
     printf 'Preview generated [%s]: %s\n' "$preview_theme" "$preview_output"
   done
@@ -484,11 +521,17 @@ wenyan render \
   --highlight "$highlight" >"$preview_file"
 printf 'Prepared markdown: %s\n' "$prepared_file"
 printf 'Preview: %s\n' "$preview_file"
+open_preview_file="$preview_file"
+if [[ -n "$persistent_preview_dir" ]]; then
+  persistent_preview_file="$("$PYTHON" "$script_dir/persist_preview.py" "$preview_file" "$work_dir" "$persistent_preview_dir")"
+  open_preview_file="$persistent_preview_file"
+  printf 'Persistent preview: %s\n' "$persistent_preview_file"
+fi
 printf 'Renderer: wenyan %s\n' "$(wenyan --version)"
 printf 'Theme: %s\n' "$theme"
 
 if [[ "$open_preview" -eq 1 && "$dry_run" -eq 0 ]] && command -v open >/dev/null 2>&1; then
-  open "$preview_file"
+  open "$open_preview_file"
 fi
 if [[ "$dry_run" -eq 1 || "$render_only" -eq 1 || "$upload" -eq 0 ]]; then
   [[ "$upload" -eq 0 ]] && printf 'Upload: skipped (explicit --upload not provided)\n'

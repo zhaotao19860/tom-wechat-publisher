@@ -59,7 +59,10 @@ def _norm(text: str) -> str:
 
 
 def _spec_strings(spec: dict) -> list[str]:
-    out = [spec.get("title_zh", ""), spec.get("subtitle", ""), spec.get("notes", "")]
+    out = [
+        spec.get("title_zh", ""), spec.get("subtitle", ""),
+        spec.get("notes", ""), spec.get("source_section", ""),
+    ]
     for it in spec.get("items") or []:
         out.append(it.get("label", ""))
         out.append(it.get("sub", ""))
@@ -78,8 +81,21 @@ def _spec_strings(spec: dict) -> list[str]:
     out.extend([
         "覆盖范围", "不覆盖 / 边界", "不覆盖", "边界",
         "手绘解读", "图解要点", "流程图解", "视觉解读",
+        "PROCESS PATH", "S11 / WECHAT INFOGRAPHIC", "DUO COMPARE",
+        "BEFORE / 01", "AFTER / 02", "S08 / WECHAT INFOGRAPHIC",
     ])
     return [s for s in out if s]
+
+
+def _expected_text_present(expected: str, lines: list[str]) -> bool:
+    expected_norm = _norm(expected)
+    if not expected_norm:
+        return True
+    joined = "".join(_norm(line) for line in lines)
+    if expected_norm in joined:
+        return True
+    overlap = sum(1 for char in expected_norm if char in joined)
+    return overlap >= max(3, len(expected_norm) - 2)
 
 
 def validate(image: Path, spec: dict) -> tuple[list[str], list[str]]:
@@ -92,12 +108,22 @@ def validate(image: Path, spec: dict) -> tuple[list[str], list[str]]:
     spec_norm = [_norm(s) for s in _spec_strings(spec) if _norm(s)]
 
     # Missing core text
-    title_norm = _norm(spec.get("title_zh", ""))
-    if title_norm:
-        joined = "".join(_norm(l) for l in lines)
-        # Vision sometimes splits the title across boxes; check char overlap.
-        if title_norm not in joined and sum(1 for ch in title_norm if ch in joined) < max(3, len(title_norm) - 2):
-            warnings.append(f"missing title in OCR: expected '{spec.get('title_zh','')}'")
+    no_text_ai = (
+        str(spec.get("render_mode") or "") == "ai"
+        and str(spec.get("fact_risk") or "") == "low"
+        and not (spec.get("labels") or [])
+    )
+    required_title = "" if no_text_ai else str(spec.get("title_zh") or "")
+    if str(spec.get("kind") or "") == "cover" and spec.get("cover_text"):
+        required_title = ""
+    if required_title and not _expected_text_present(required_title, lines):
+        warnings.append(f"missing title in OCR: expected '{required_title}'")
+
+    if str(spec.get("kind") or "") == "cover":
+        for poem_line in spec.get("cover_text") or []:
+            expected = str(poem_line).strip()
+            if expected and not _expected_text_present(expected, lines):
+                warnings.append(f"missing cover poem in OCR: expected '{expected}'")
 
     # Stray text
     for raw in lines:

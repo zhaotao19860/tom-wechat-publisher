@@ -2,7 +2,7 @@
 """Generate side-by-side body image candidates for WeChat articles.
 
 Reads an existing image_specs.json and produces both deterministic HTML body
-images and AI Guizang-style body images. Covers are intentionally skipped.
+images and Ian Xiaohei AI body images. Covers are intentionally skipped.
 """
 
 from __future__ import annotations
@@ -83,12 +83,29 @@ def _render_ai_candidate(spec: dict, idx: int, ai_root: Path, article_title: str
     ga.normalize_wechat_image(png_path)
     ocr_warnings, _ = ga._ocr_warnings_for_image(png_path, spec)
     warnings = ga._unique_warnings([*ocr_warnings, *ga._file_health_warnings(png_path)])
-    score = ga._candidate_score("create-image guizang", spec, png_path, warnings)
+    score = ga._candidate_score("create-image via ian-xiaohei-illustrations", spec, png_path, warnings)
     return png_path, warnings, score, prompt_path
 
 
-def _recommend(html_score: int, html_warnings: list[str], ai_score: int, ai_warnings: list[str], ai_path: Path | None) -> tuple[str, str]:
+def _existing_ai_candidate(article_dir: Path, filename: str) -> Path | None:
+    for extension in ("png", "jpg", "jpeg", "gif"):
+        candidate = article_dir / "images" / f"{filename}.{extension}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _recommend(
+    html_score: int,
+    html_warnings: list[str],
+    ai_score: int,
+    ai_warnings: list[str],
+    ai_path: Path | None,
+    ai_required: bool = False,
+) -> tuple[str, str]:
     if ai_path is None:
+        if ai_required:
+            return "pending-ai", "该槽位要求 AI 正文插图，但尚无可用 AI 候选。"
         return "html", "AI 未生成成功，HTML 版可稳定使用。"
     severe_ai = any("stray text" in w.lower() or "garbled" in w.lower() or "too small" in w.lower() for w in ai_warnings)
     severe_html = any("failed" in w.lower() or "too small" in w.lower() for w in html_warnings)
@@ -105,18 +122,21 @@ def _write_comparison(out_dir: Path, rows: list[dict]) -> Path:
     lines = [
         "# Body Image Comparison",
         "",
-        "同一组正文配图的 HTML 版和 AI Guizang 版候选。封面未参与比较。",
+        "同一组正文配图的 HTML 版和 Ian 小黑 AI 版候选。封面未参与比较。",
         "",
         "## Recommendation",
         "",
     ]
     ai_count = sum(1 for row in rows if row["recommend"] == "ai")
     html_count = sum(1 for row in rows if row["recommend"] == "html")
-    overall = "html" if html_count >= ai_count else "ai"
-    if overall == "html":
+    pending_count = sum(1 for row in rows if row["recommend"] == "pending-ai")
+    overall = "pending-ai" if pending_count else "html" if html_count >= ai_count else "ai"
+    if overall == "pending-ai":
+        lines.append(f"整体状态：有 `{pending_count}` 个 AI 必选槽位待生成或复核，不能用 HTML 候选替代。")
+    elif overall == "html":
         lines.append("整体推荐：`HTML 正文图`，因为正文技术图文字准确性更稳定。可挑选个别 AI 图替换视觉要求更强的段落。")
     else:
-        lines.append("整体推荐：`AI Guizang 正文图`，因为多数候选在视觉表现和校验分数上更优。仍需人工检查中文标签。")
+        lines.append("整体推荐：`Ian 小黑正文图`，因为多数低风险候选在视觉表现和校验分数上更优。仍需人工检查中文标签。")
     lines.extend(["", "## Per Image", ""])
     for row in rows:
         lines.extend([
@@ -163,9 +183,26 @@ def main(argv: list[str]) -> int:
         ai_warnings: list[str] = ["AI generation skipped"] if args.skip_ai else []
         ai_score = 0
         prompt_path: Path | None = None
-        if not args.skip_ai:
+        is_ian_candidate = ga._is_ian_low_risk_body(spec)
+        if args.skip_ai and is_ian_candidate:
+            existing = _existing_ai_candidate(args.specs.parent, str(spec.get("filename") or f"slot_{idx}"))
+            if existing:
+                ai_dir = out_dir / "ai" / "images"
+                ai_dir.mkdir(parents=True, exist_ok=True)
+                ai_path = ai_dir / existing.name
+                shutil.copy2(existing, ai_path)
+                ai_warnings = ga._file_health_warnings(ai_path)
+                ai_score = ga._candidate_score(
+                    "existing ian-xiaohei-illustrations candidate", spec, ai_path, ai_warnings
+                )
+        elif not args.skip_ai and is_ian_candidate:
             ai_path, ai_warnings, ai_score, prompt_path = _render_ai_candidate(spec, idx, out_dir / "ai", title, args.resolution)
-        rec, reason = _recommend(html_score, html_warnings, ai_score, ai_warnings, ai_path)
+        elif not args.skip_ai:
+            ai_warnings = ["AI candidate skipped: exact or medium/high-risk facts stay deterministic"]
+        rec, reason = _recommend(
+            html_score, html_warnings, ai_score, ai_warnings, ai_path,
+            ai_required=is_ian_candidate,
+        )
         rows.append({
             "title": spec.get("title_zh") or spec.get("filename") or f"slot {idx}",
             "html": str(html_path.relative_to(out_dir)),

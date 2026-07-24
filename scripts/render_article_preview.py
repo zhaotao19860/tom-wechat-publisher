@@ -64,7 +64,8 @@ def render(markdown: str, base: Path) -> str:
             output.append(f"<blockquote>{inline(line[2:], base)}</blockquote>")
         elif re.match(r"^[-*+]\s+", line):
             flush()
-            output.append(f"<ul><li>{inline(re.sub(r'^[-*+]\\s+', '', line), base)}</li></ul>")
+            list_item = re.sub(r"^[-*+]\s+", "", line)
+            output.append(f"<ul><li>{inline(list_item, base)}</li></ul>")
         else:
             paragraph.append(line.strip())
     flush()

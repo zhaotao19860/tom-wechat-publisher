@@ -1889,6 +1889,66 @@ CONSTRAINTS
 """.strip() + "\n"
 
 
+def _is_ian_low_risk_body(spec: dict) -> bool:
+    return (
+        str(spec.get("kind") or "") != "cover"
+        and str(spec.get("render_mode") or "").strip().lower() == "ai"
+        and str(spec.get("fact_risk") or "").strip().lower() == "low"
+    )
+
+
+def _ian_xiaohei_body_prompt(
+    *,
+    spec: dict,
+    article_title: str,
+    title: str,
+    visual_type: str,
+    item_details: str,
+    labels: list[str],
+) -> str:
+    label_block = " / ".join(labels[:5])
+    label_instruction = (
+        f"Use only these short handwritten Chinese labels, each at most once: {label_block}."
+        if label_block
+        else "Do not render readable text."
+    )
+    return f"""# WeChat Body Image Prompt - Ian Xiaohei Illustration
+
+metadata:
+  backend: ian-xiaohei-illustrations/create-image
+  type: {visual_type}
+  style: Ian Xiaohei minimalist hand-drawn product sketch
+  aspect: 16:9
+  fact_risk: low
+
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+VISUAL DNA
+Pure white background. Minimalist black hand-drawn line art with slightly wobbly pen lines. Lots of empty white space. Sparse red, orange, and blue handwritten Chinese annotations. Clean, absurd product-sketch feeling. No gradients, shadows, paper texture, complex background, commercial vector style, PPT infographic look, cute mascot poster, children's illustration, or realistic UI.
+
+RECURRING IP CHARACTER
+小黑 is a small solid-black irregular creature with white dot eyes, tiny thin legs and optional thin arms, and a blank serious expression. 小黑 must perform the core conceptual action instead of standing nearby. Make 小黑 deadpan, diligent, slightly bizarre, and not cute. If removing 小黑 leaves the metaphor fully functional, redesign the action.
+
+ARTICLE CONTEXT
+- Article: {article_title}
+- Section: {title}
+- Reader purpose: {spec.get('purpose') or spec.get('notes') or spec.get('source_section')}
+- Structure: {visual_type}
+
+ARTICLE-DERIVED CONTENT
+{item_details}
+
+COMPOSITION
+Invent one fresh physical metaphor specifically for this section. Translate the abstract idea into one low-tech object and one physical action such as routing, sorting, pulling, opening, weighing, repairing, or carrying. Use only 1-2 main objects. Keep the subject around 40-60% of the canvas and preserve at least 35% blank white space. Orange marks the main path, red marks one key warning or result, and blue is optional for secondary system state.
+
+TEXT
+{label_instruction} Keep labels to 2-8 Chinese characters, large enough for a phone, and use no paragraph text, English labels, URLs, code, versions, commands, numbers, logos, watermarks, or invented facts.
+
+CONSTRAINTS
+One image explains one core idea. Do not write a title in the top-left. Do not write the structure type. Do not make a formal flowchart, course slide, dense explainer, card grid, or complex architecture diagram. Do not copy prior examples; invent a new strange but coherent metaphor for this article section.
+""".strip() + "\n"
+
+
 def _build_image_prompt(spec: dict, article_title: str) -> str:
     """Build a /create-image prompt for one WeChat illustration spec.
 
@@ -1956,14 +2016,14 @@ def _build_image_prompt(spec: dict, article_title: str) -> str:
             )
         item_details = "\n".join(item_details_lines)
 
-    if kind != "cover" and allow_text and guizang_labels:
-        return _guizang_body_prompt(
+    if _is_ian_low_risk_body(spec):
+        return _ian_xiaohei_body_prompt(
             spec=spec,
             article_title=article_title,
             title=title,
             visual_type=visual_type,
             item_details=item_details,
-            labels=guizang_labels,
+            labels=guizang_labels[:5] if allow_text else [],
         )
 
     if kind == "cover":
@@ -2482,14 +2542,24 @@ def _create_ai_candidate(
     staging_path = candidate_dir.parent / candidate_name
     candidate_path.unlink(missing_ok=True)
     staging_path.unlink(missing_ok=True)
-    use_overlay = AI_TEXT_OVERLAY and _html_render is not None and str(spec.get("kind") or "summary") != "cover"
+    use_overlay = (
+        AI_TEXT_OVERLAY
+        and _html_render is not None
+        and str(spec.get("render_mode") or "").strip().lower() == "hybrid"
+    )
     ai_prompt = _background_prompt(prompt_text, spec) if use_overlay else prompt_text
     if use_overlay:
         _save_prompt(prompt_dir, f"{idx + 1:02d}-{_resolve_visual_type(spec.get('kind','summary'))}-{stem}-background", ai_prompt)
     ok = run_create_image(ai_prompt, candidate_name, aspect_ratio, resolution)
     if ok and staging_path.exists():
         shutil.move(str(staging_path), str(candidate_path))
-    source = "create-image background + html text overlay" if use_overlay else "create-image candidate"
+    source = (
+        "create-image background + html text overlay"
+        if use_overlay
+        else "create-image via ian-xiaohei-illustrations"
+        if _is_ian_low_risk_body(spec)
+        else "create-image candidate"
+    )
     warnings: list[str] = []
     ocr_lines: list[str] = []
     if ok and candidate_path.exists():
@@ -2854,6 +2924,8 @@ def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> d
                 produced[filename] = final_path
                 source = html_source
                 warnings = []
+                spec_obj.rendered_by = "html-render"
+                spec_obj.overlay_applied = str(spec.get("render_mode") or "").strip().lower() == "hybrid"
                 audit_reports.append({
                     "file": str(final_path.relative_to(target_dir)),
                     "title": spec.get("title_zh") or plan.title,
@@ -2911,6 +2983,10 @@ def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> d
                 produced[filename] = final_path
                 source = html_source
                 warnings = [f"AI backend unavailable; used HTML fallback. AI errors: {' | '.join(ai_errors)}"]
+                spec_obj.render_mode = "html"
+                spec_obj.illustration_backend = "html-render"
+                spec_obj.rendered_by = "html-render fallback"
+                spec_obj.overlay_applied = False
                 if idx == 0:
                     plan.cover_filename = filename
                 audit_reports.append({
@@ -2964,6 +3040,10 @@ def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> d
                     shutil.copy2(html_path, final_path)
                 produced[filename] = final_path
                 source = html_source
+                spec_obj.render_mode = "html"
+                spec_obj.illustration_backend = "html-render"
+                spec_obj.rendered_by = "html-render fallback"
+                spec_obj.overlay_applied = False
                 fallback_warning = (
                     "AI image failed validation; used HTML fallback. AI warnings: "
                     + "; ".join(warnings or ["unknown validation error"])
@@ -2995,6 +3075,12 @@ def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> d
             shutil.copy2(ai_path, final_path)
             produced[filename] = final_path
             source = ai_source
+            spec_obj.rendered_by = (
+                "ian-xiaohei-illustrations/create-image"
+                if _is_ian_low_risk_body(spec)
+                else source
+            )
+            spec_obj.overlay_applied = "html text overlay" in source
 
             if idx == 0:
                 plan.cover_filename = filename
@@ -3015,6 +3101,10 @@ def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> d
             print(f"  - {filename}: {source} selected (create-image={score})" + (f" ({len(warnings)} warnings)" if warnings else ""))
     finally:
         os.chdir(cwd)
+
+    # Persist the actual renderer after generation so preview/upload preflight
+    # can reject stale or incorrectly routed body illustrations.
+    _image_spec.write_specs(specs, specs_path)
 
     if INFOGRAPHIC_MODE in {"hybrid", "auto", ""}:
         comparison_dir = images_dir / "body-image-comparison"

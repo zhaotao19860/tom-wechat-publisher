@@ -19,13 +19,11 @@ The spec is intentionally small and deterministic: rendering backends must
 be able to produce a correct, audit-friendly diagram from these fields
 without ever calling an image model for text.
 """
-from __future__ import annotations
-
 import json
 import re
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
 # A small palette pool. Backends pick by index so colors remain stable
@@ -95,12 +93,12 @@ VISUAL_THEMES: dict[str, dict[str, Any]] = {
 
 KIND_KEYWORDS = (
     ("flow", ("流程", "工作", "怎么工作", "链路", "攻击链", "链", "路径", "步骤", "时序", "瞬间", "卡在", "触发")),
-    ("compare", ("对比", "区别", "之前", "之后", "覆盖", "不覆盖", "范围", "边界", "哪些环境", "命中")),
-    ("checklist", ("清单", "落地", "做什么", "操作", "执行", "动作", "建议", "排查", "checklist")),
+    ("compare", ("对比", "区别", "之前", "之后", "覆盖", "不覆盖", "范围", "边界", "哪些环境", "命中", "方案", "怎么选")),
+    ("checklist", ("清单", "落地", "做什么", "操作", "执行", "动作", "建议", "排查", "配置", "检查", "相关 RFC", "checklist")),
     ("impact", ("影响", "风险", "覆盖", "不覆盖", "适用", "不适用")),
     ("summary", ("关键信息", "一分钟", "总览", "速览", "summary")),
-    ("relations", ("关系", "角色", "组件", "拓扑")),
-    ("timeline", ("时间", "时间线", "演进", "历史")),
+    ("relations", ("关系", "角色", "组件", "拓扑", "原理")),
+    ("timeline", ("时间", "时间线", "演进", "历史", "趋势")),
 )
 
 
@@ -117,10 +115,15 @@ class ImageSpec:
     source_section: str = ""    # markdown section header this spec was derived from
     notes: str = ""             # human note for audit log
     cover_text: list[str] = field(default_factory=list)  # short poem lines for AI cover calligraphy
+    cover_style: str = ""       # approved Chinese-painting style from frontmatter
+    cover_typography: str = ""  # vertical | horizontal | split
     text_style: str = ""         # cover calligraphy / body text rendering hint
     text_policy: str = ""        # renderer/audit policy for visible text
     render_mode: str = "ai"      # ai | html | hybrid
     fact_risk: str = "low"       # low | medium | high
+    illustration_backend: str = ""
+    rendered_by: str = ""
+    overlay_applied: bool = False
     structure: str = "text-scene"
     purpose: str = ""
     labels: list[str] = field(default_factory=list)
@@ -153,11 +156,25 @@ def _parse_frontmatter(md: str) -> tuple[dict, str]:
         if end != -1:
             block = md[3:end].strip()
             body = md[end + 4:].lstrip("\n")
-            fm = {}
+            fm: dict[str, Any] = {}
+            current_list = ""
             for line in block.splitlines():
+                stripped = line.strip()
+                if current_list and stripped.startswith("- "):
+                    value = stripped[2:].strip().strip('"').strip("'")
+                    if value:
+                        fm[current_list].append(value)
+                    continue
+                current_list = ""
                 if ":" in line:
                     k, v = line.split(":", 1)
-                    fm[k.strip()] = v.strip().strip('"').strip("'")
+                    key = k.strip()
+                    value = v.strip().strip('"').strip("'")
+                    if value:
+                        fm[key] = value
+                    else:
+                        fm[key] = []
+                        current_list = key
             return fm, body
     return {}, md
 
@@ -174,6 +191,15 @@ def _parse_sections(body: str) -> list[tuple[str, str]]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
         out.append((title, body[start:end]))
     return out
+
+
+def _intro_image_sections(body: str) -> list[tuple[str, str]]:
+    """Return image-bearing content before the first level-two heading."""
+    first_section = re.search(r"^##\s+", body, flags=re.MULTILINE)
+    intro = body[:first_section.start()] if first_section else body
+    if re.search(r"!\[[^\]]*\]\([^)]+\)", intro):
+        return [("", intro)]
+    return []
 
 
 def _image_basename(section_body: str, fallback: str) -> str:
@@ -224,6 +250,14 @@ def _extract_bullets(section_body: str, limit: int = 6) -> list[str]:
         if len(bullets) >= limit:
             break
     return bullets
+
+
+def _extract_subheadings(section_body: str, limit: int = 6) -> list[str]:
+    """Use level-three headings as stable category labels for comparisons."""
+    return [
+        _strip_md(match.group(1)).strip()
+        for match in list(re.finditer(r"^###\s+(.+?)\s*$", section_body, flags=re.MULTILINE))[:limit]
+    ]
 
 
 def _extract_sentences(section_body: str, limit: int = 4, max_len: int = 40) -> list[str]:
@@ -518,7 +552,7 @@ def _supplement_items(items: list[dict], sec_body: str, limit: int = 4) -> list[
     return out
 
 
-def _dmarc_np_section_spec(sec_title: str, sec_body: str) -> tuple[str, list[dict]] | None:
+def _dmarc_np_section_spec(sec_title: str, sec_body: str) -> Optional[tuple[str, list[dict]]]:
     """Build concrete diagram cards for DMARC np / DNSSEC compact-denial articles."""
     text = _strip_md(f"{sec_title} {sec_body}")
     lower = text.lower()
@@ -814,6 +848,22 @@ def _assign_render_policy(spec: ImageSpec) -> None:
         spec.structure = "layer-stack"
         spec.purpose = "结合视觉对象与少量精确标签解释概念"
 
+    if spec.render_mode in {"html", "hybrid"} and spec.fact_risk == "high" and not locked:
+        for item in spec.items:
+            for key in ("label", "sub"):
+                value = str(item.get(key) or "").strip()
+                if value and value not in locked:
+                    locked.append(value)
+
+    if spec.kind == "cover":
+        spec.illustration_backend = "create-image"
+    elif spec.render_mode == "ai" and spec.fact_risk == "low":
+        spec.illustration_backend = "ian-xiaohei-illustrations"
+    elif spec.render_mode == "html":
+        spec.illustration_backend = "html-render"
+    else:
+        spec.illustration_backend = "html-render"
+
     spec.labels = [
         str(item.get("label") or item.get("step") or "").strip()
         for item in spec.items[:5]
@@ -850,8 +900,16 @@ def derive_specs(markdown_path: Path, visual_theme: str = "") -> list[ImageSpec]
     for sec_title, sec_body in sections[:3]:
         cover_items.append(_section_label_item(sec_title, sec_body, 8, 24))
     cover_palette_index, cover_palette = _theme_palette(visual_theme, 0)
+    cover_value = str(fm.get("cover") or "")
+    cover_filename = Path(cover_value).stem if cover_value else "cover_article"
+    explicit_poem = fm.get("cover_poem")
+    cover_text = (
+        [str(line).strip() for line in explicit_poem if str(line).strip()]
+        if isinstance(explicit_poem, list)
+        else _cover_poem_lines(title, sections)
+    )
     specs.append(ImageSpec(
-        filename="cover_article",
+        filename=cover_filename,
         kind="cover",
         title_zh=title,
         subtitle="5 分钟看懂 · 图多字少",
@@ -861,7 +919,9 @@ def derive_specs(markdown_path: Path, visual_theme: str = "") -> list[ImageSpec]
         theme_palette=cover_palette,
         source_section="title",
         notes=_cover_cta(sections, title),
-        cover_text=_cover_poem_lines(title, sections),
+        cover_text=cover_text,
+        cover_style=str(fm.get("cover_style") or ""),
+        cover_typography=str(fm.get("cover_typography") or ""),
         text_style="Chinese calligraphy, lishu or kaishu, ink-brush title poem",
         text_policy="cover-poem-calligraphy",
     ))
@@ -876,16 +936,41 @@ def derive_specs(markdown_path: Path, visual_theme: str = "") -> list[ImageSpec]
         "img_section_boundary",
         "img_section_actions",
     ]
-    illustrated_sections = [
+    illustrated_sections = _intro_image_sections(body) + [
         (sec_title, sec_body)
         for sec_title, sec_body in sections
         if re.search(r"!\[[^\]]*\]\([^)]+\)", sec_body)
     ]
     if not illustrated_sections:
-        illustrated_sections = sections
+        # Keep the default article set focused: one image should resolve one
+        # material reader question, not mirror every heading in the article.
+        # Prefer mechanism, comparison, flow, and action sections, then fill
+        # remaining slots in document order. Explicit Markdown image sections
+        # are preserved above and are not reduced here.
+        priority_terms = (
+            "原理", "机制", "流程", "方案", "对比", "配置", "检查",
+            "行动", "防护", "趋势", "风险", "路径", "架构",
+        )
+        ranked = sorted(
+            enumerate(sections),
+            key=lambda pair: (
+                not any(term in pair[1][0] for term in priority_terms),
+                pair[0],
+            ),
+        )
+        selected_indexes = sorted(index for index, _ in ranked[:4])
+        illustrated_sections = [sections[index] for index in selected_indexes]
+    else:
+        # Do not let an article with many pre-existing image references create
+        # an unbounded image set; four body slots is the normal WeChat range.
+        illustrated_sections = illustrated_sections[:4]
     for idx, (sec_title, sec_body) in enumerate(illustrated_sections):
-        kind = _classify_kind(sec_title)
+        display_title = sec_title or "开场场景"
+        kind = _classify_kind(display_title)
         bullets = _extract_bullets(sec_body, limit=6)
+        subheadings = _extract_subheadings(sec_body, limit=6)
+        if kind == "compare" and len(subheadings) >= 3:
+            bullets = subheadings
         if not bullets:
             bullets = _extract_sentences(sec_body, limit=4)
         if not bullets:
@@ -893,12 +978,12 @@ def derive_specs(markdown_path: Path, visual_theme: str = "") -> list[ImageSpec]
             # from the section text. Never reuse the section title (that was
             # the source of the old "Key Flow: Key Flow" placeholder bug).
             bullets = _fallback_concrete_items(sec_title, sec_body, limit=4)
-        special = _dmarc_np_section_spec(sec_title, sec_body)
+        special = _dmarc_np_section_spec(display_title, sec_body)
         items: list[dict] = []
         if special:
             kind, items = special
         else:
-            items = _public_dns_comparison_items(sec_title, sec_body)
+            items = _public_dns_comparison_items(display_title, sec_body)
             if items:
                 kind = "compare"
             elif kind == "flow":
@@ -923,11 +1008,11 @@ def derive_specs(markdown_path: Path, visual_theme: str = "") -> list[ImageSpec]
             # one more time directly on the section body. Only if that also
             # comes back empty do we degrade to the section title — and we mark
             # the spec as low-quality so the prompt builder can flag it.
-            concrete = _fallback_concrete_items(sec_title, sec_body, limit=4)
+            concrete = _fallback_concrete_items(display_title, sec_body, limit=4)
             if concrete:
                 items = [_split_label(t, 14, 30) for t in concrete]
             else:
-                items = [{"label": _short(sec_title, 10), "sub": "", "_low_quality": True}]
+                items = [{"label": _short(display_title, 10), "sub": "", "_low_quality": True}]
         elif kind != "cover" and len(items) < 3:
             items = _supplement_items(items, sec_body, limit=4)
         if kind == "flow":
@@ -958,17 +1043,38 @@ def derive_specs(markdown_path: Path, visual_theme: str = "") -> list[ImageSpec]
         specs.append(ImageSpec(
             filename=_image_basename(sec_body, fallback_filename),
             kind=kind,
-            title_zh=sec_title,
+            title_zh=display_title,
             subtitle="",
             items=items,
             palette_index=palette_index,
             visual_theme=visual_theme,
             theme_palette=theme_palette,
             source_section=sec_title,
-            notes=f"derived from section: {sec_title}",
+            notes=f"derived from section: {sec_title or 'intro'}",
         ))
     for spec in specs:
         _assign_render_policy(spec)
+    body_specs = [spec for spec in specs if spec.kind != "cover"]
+    if body_specs:
+        # Keep the first body slot as the editorial entry point. Exact facts
+        # belong in later deterministic slots; the opening image should lower
+        # cognitive load with a sparse Ian Xiaohei scene.
+        first = body_specs[0]
+        first.render_mode = "ai"
+        first.fact_risk = "low"
+        first.illustration_backend = "ian-xiaohei-illustrations"
+        first.rendered_by = "ian-xiaohei-illustrations/create-image"
+        first.structure = "text-scene"
+        first.purpose = "用小黑的核心动作建立文章的第一视觉锚点"
+        first.locked_facts = []
+        first.labels = first.labels[:3]
+        first.qa_rules = [
+            "纯白背景",
+            "小黑必须承担核心动作",
+            "正文第一张图",
+            "公众号宽度下主体清晰",
+            "不得出现事实数字、命令或水印",
+        ]
     return specs
 
 

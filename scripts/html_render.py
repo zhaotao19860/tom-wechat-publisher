@@ -1121,11 +1121,12 @@ def _render_summary_left_callout(spec: dict) -> str:
     for i, it in enumerate(items):
         label = _esc(it.get("label", ""))
         sub = _esc(it.get("sub", ""))
+        sub_html = f'<div class="r-sub">{sub}</div>' if sub else ""
         rows.append(
             f'<div class="row">'
             f'<div class="dot"></div>'
             f'<div class="row-body"><div class="r-label">{label}</div>'
-            f'{f"<div class=\"r-sub\">{sub}</div>" if sub else ""}</div></div>'
+            f'{sub_html}</div></div>'
         )
     rows_html = "".join(rows)
     return f"""<!DOCTYPE html>
@@ -1212,11 +1213,12 @@ def _render_flow_horizontal(spec: dict) -> str:
         label = _esc(it.get("label", ""))
         sub = _esc(it.get("sub", ""))
         connector = '<div class="chev"></div>' if i < len(items) - 1 else ""
+        sub_html = f'<div class="step-sub">{sub}</div>' if sub else ""
         steps.append(
             f'<div class="step">'
             f'<div class="step-pill" style="background:{primary}">{step_num}</div>'
             f'<div class="step-label">{label}</div>'
-            f'{f"<div class=\"step-sub\">{sub}</div>" if sub else ""}</div>'
+            f'{sub_html}</div>'
             f'{connector}'
         )
     steps_html = "".join(steps)
@@ -1300,11 +1302,12 @@ def _render_premium_cards(spec: dict) -> str:
         sub = _item_text(it, "sub")
         number = _esc(it.get("step") or f"{i + 1:02d}")
         motif = _shape_svg(motifs[i % len(motifs)], primary, accent, i)
+        sub_html = f'<p>{sub}</p>' if sub else ""
         cards.append(
             f'<article class="card card-{i % 3}">'
             f'<div class="card-top"><div class="num">{number}</div><div class="motif">{motif}</div></div>'
             f'<h2>{label}</h2>'
-            f'{f"<p>{sub}</p>" if sub else ""}'
+            f'{sub_html}'
             f'</article>'
         )
     cards_html = "".join(cards)
