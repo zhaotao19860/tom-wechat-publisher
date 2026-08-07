@@ -4,8 +4,8 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  publish_draft.sh article.md [--title "Title"] [--cover cover.jpg] [--author "Name"] [--theme theme] [--highlight theme] [--preview-themes] [--preview-dir DIR] [--no-open-preview] [--render-only] [--dry-run] [--keep-temp] [--theme-selection-confirmed] [--require-body-images] [--upload]
-  publish_draft.sh --generate-from SOURCE [--topic "..."] [--out-dir DIR] [--search-query "..."] [--image-visual-theme THEME] [--image-theme-selection-confirmed] [--no-search] [--no-images] [--markdown] [--humanize]
+  publish_draft.sh article.md [--title "Title"] [--cover cover.jpg] [--author "Name"] [--theme theme] [--highlight theme] [--preview-themes] [--preview-dir DIR] [--no-open-preview] [--no-footnote] [--render-only] [--dry-run] [--keep-temp] [--theme-selection-confirmed] [--require-body-images] [--upload]
+  publish_draft.sh --generate-from SOURCE --topic "..." [--out-dir DIR] [--history-root DIR] [--topic-history-reviewed] [--allow-topic-repeat] [--search-query "..."] [--image-visual-theme THEME] [--image-theme-selection-confirmed] [--no-search] [--no-images] [--markdown] [--humanize]
   publish_draft.sh --humanize article.md [--in-place] [--score] [--json]
 
 Generate mode (--generate-from):
@@ -34,6 +34,7 @@ Environment:
   TOM_WECHAT_CREATE_IMAGE_BASH   override path to the create-image wrapper
   TOM_WECHAT_CREATE_IMAGE_PS1    override path to the create-image PowerShell wrapper
   TOM_WECHAT_PYTHON              optional Python executable override; Python 3.9+ is required
+  TOM_WECHAT_HISTORY_ROOT        historical article root; defaults to ~/Desktop/wechat
   TOM_WECHAT_FAILURE_NOTIFY      optional 如流 recipient for failure alerts; disabled by default
 
 This wrapper prepares WeChat-compatible Markdown/images and renders with Wenyan by default.
@@ -113,6 +114,7 @@ theme_selection_confirmed=0
 require_body_images=0
 upload=0
 persistent_preview_dir=""
+footnote=1
 
 # Generate-mode state
 generate_from=""
@@ -123,6 +125,9 @@ generate_no_search=0
 generate_no_images=0
 generate_markdown=0
 generate_humanize=1  # default ON at end of --generate-from
+generate_history_root="${TOM_WECHAT_HISTORY_ROOT:-$HOME/Desktop/wechat}"
+topic_history_reviewed=0
+allow_topic_repeat=0
 image_visual_theme="${TOM_WECHAT_IMAGE_VISUAL_THEME:-}"
 image_theme_selection_confirmed=0
 
@@ -167,6 +172,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-open-preview)
       open_preview=0
+      shift
+      ;;
+    --no-footnote)
+      footnote=0
       shift
       ;;
     --preview-dir)
@@ -220,6 +229,18 @@ while [[ $# -gt 0 ]]; do
     --topic)
       generate_topic="${2:-}"
       shift 2
+      ;;
+    --history-root)
+      generate_history_root="${2:-}"
+      shift 2
+      ;;
+    --topic-history-reviewed)
+      topic_history_reviewed=1
+      shift
+      ;;
+    --allow-topic-repeat)
+      allow_topic_repeat=1
+      shift
       ;;
     --out-dir)
       generate_out_dir="${2:-}"
@@ -324,12 +345,53 @@ if [[ -n "$generate_from" ]]; then
     echo "ERROR: --generate-from requires --out-dir" >&2
     exit 2
   fi
+  if [[ -z "$generate_topic" ]]; then
+    echo "ERROR: --generate-from requires --topic so historical topic reuse can be checked before writing" >&2
+    exit 2
+  fi
+  if [[ -z "$generate_history_root" || ! -d "$generate_history_root" ]]; then
+    echo "ERROR: topic history root is not a directory: ${generate_history_root:-<empty>}" >&2
+    exit 2
+  fi
   date_prefix="$(date +%Y-%m%d)"
   out_parent="$(dirname "$generate_out_dir")"
   out_base="$(basename "$generate_out_dir")"
   if [[ ! "$out_base" =~ ^[0-9]{4}-[0-9]{4}- ]]; then
     generate_out_dir="$out_parent/$date_prefix-$out_base"
   fi
+  history_cmd=("$PYTHON" "$script_dir/check_topic_history.py"
+    "--topic" "$generate_topic"
+    "--source" "$generate_from"
+    "--history-root" "$generate_history_root"
+    "--exclude" "$generate_out_dir"
+  )
+  printf 'Checking topic against history: %s\n' "$generate_history_root" >&2
+  set +e
+  "${history_cmd[@]}"
+  history_status=$?
+  set -e
+  case "$history_status" in
+    0)
+      ;;
+    3)
+      if [[ "$allow_topic_repeat" -ne 1 ]]; then
+        echo "ERROR: duplicate topic detected; stop before writing or rerun only after the user explicitly requests an update/sequel with --allow-topic-repeat" >&2
+        exit 3
+      fi
+      printf 'Topic repetition explicitly allowed for an update/sequel.\n' >&2
+      ;;
+    4)
+      if [[ "$topic_history_reviewed" -ne 1 && "$allow_topic_repeat" -ne 1 ]]; then
+        echo "ERROR: related historical articles require angle review; state the distinct angle, then rerun with --topic-history-reviewed" >&2
+        exit 4
+      fi
+      printf 'Related-topic history review confirmed.\n' >&2
+      ;;
+    *)
+      echo "ERROR: topic history check failed with exit code $history_status" >&2
+      exit "$history_status"
+      ;;
+  esac
   gen_cmd=("$PYTHON" "$script_dir/generate_article.py"
     "--source" "$generate_from"
     "--out-dir" "$generate_out_dir"
@@ -515,10 +577,11 @@ PY
 fi
 
 preview_file="$work_dir/preview.html"
-wenyan render \
-  --file "$prepared_file" \
-  --custom-theme "$theme_file" \
-  --highlight "$highlight" >"$preview_file"
+render_cmd=(wenyan render --file "$prepared_file" --custom-theme "$theme_file" --highlight "$highlight")
+if [[ "$footnote" -eq 0 ]]; then
+  render_cmd+=(--no-footnote)
+fi
+"${render_cmd[@]}" >"$preview_file"
 printf 'Prepared markdown: %s\n' "$prepared_file"
 printf 'Preview: %s\n' "$preview_file"
 open_preview_file="$preview_file"
@@ -551,6 +614,9 @@ if [[ -z "$wechat_app_id" || -z "$wechat_app_secret" ]]; then
   exit 2
 fi
 upload_cmd=(env WECHAT_APP_ID="$wechat_app_id" WECHAT_APP_SECRET="$wechat_app_secret" wenyan publish --file "$prepared_file" --custom-theme "$theme_file" --highlight "$highlight")
+if [[ "$footnote" -eq 0 ]]; then
+  upload_cmd+=(--no-footnote)
+fi
 upload_log="$work_dir/upload.log"
 set +e
 "${upload_cmd[@]}" 2>&1 | tee "$upload_log"

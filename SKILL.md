@@ -19,18 +19,21 @@ This skill can:
 
 1. Generate a grounded article from a URL, local text/Markdown source, conversation context, meeting notes, summary, or topic brief.
 2. Enrich source material with optional web search and preserve uncertainty instead of inventing facts.
-3. Generate and route the cover and body illustrations according to factual risk.
-4. Normalize Markdown metadata and local image references.
-5. Convert unsupported local images into WeChat-compatible formats.
-6. Validate the article, cover, and body images before upload.
-7. Render one or more local HTML previews with bundled themes.
-8. Create a WeChat draft through an explicitly configured upload command.
-9. Diagnose failures by stage: source ingestion, fact extraction, image generation, preflight, preparation, rendering, media upload, or draft creation.
+3. Write and revise through the `human-writing` skill so the article reads like a person who checked the material, not a model report.
+4. Generate and route the cover and body illustrations according to factual risk.
+5. Normalize Markdown metadata and local image references.
+6. Convert unsupported local images into WeChat-compatible formats.
+7. Validate the article, cover, and body images before upload.
+8. Render one or more local HTML previews with bundled themes.
+9. Create a WeChat draft through an explicitly configured upload command.
+10. Diagnose failures by stage: source ingestion, fact extraction, prose revision, image generation, preflight, preparation, rendering, media upload, or draft creation.
 
 This skill must not:
 
 - Publish or mass-send a WeChat article.
 - Upload when the user only asked to write, polish, convert, inspect, or preview.
+- Ship prose that fails the `human-writing` revision gate.
+- Pad an article with restated points, invented examples, or hypothetical people when material is short.
 - Claim upload success from an exit code alone when the adapter output reports failure.
 - Generate article illustrations itself when a dedicated illustration skill is a better fit.
 - Handle GitHub Pages publishing; use `tom-pages-publisher` for that.
@@ -109,11 +112,85 @@ The wrapper must verify:
 - The cover exists locally and the mandatory AI cover metadata contract is valid.
 - Prepared images are JPEG, PNG, or GIF.
 - High-risk HTML/hybrid specs contain `locked_facts`, and body labels are article-specific.
+- The delivered prose passed `human-writing/scripts/check_prose.py` after the last content edit.
 - Wenyan CLI is installed and executable for preview and upload.
 - Upload is not attempted with `--dry-run`, `--render-only`, or theme-preview mode.
 
 Use `--keep-temp` while diagnosing problems. Temporary output otherwise belongs under the system temporary directory and is removed on exit.
 Failure notifications are disabled by default. Set `TOM_WECHAT_FAILURE_NOTIFY` to an explicit 如流 recipient to opt in.
+
+## Mandatory Topic History Check
+
+Before outlining or drafting any new article, choose a concrete working topic and compare it with previously written articles. This gate applies whether the input is a URL, local file, conversation, notes, summary, or topic brief.
+
+```bash
+python3 ~/.comate/skills/tom-wechat-publisher/scripts/check_topic_history.py \
+  --topic "Concrete working topic" \
+  --source "SOURCE_URL_OR_PATH" \
+  --history-root "${TOM_WECHAT_HISTORY_ROOT:-$HOME/Desktop/wechat}"
+```
+
+Treat the report as a required input to topic selection:
+
+- `CLEAR` (exit `0`): record that no material overlap was found, then start the outline.
+- `RELATED` (exit `4`): read the listed historical titles, compare their core question, evidence, and conclusion, and state the new angle before drafting. Use `--topic-history-reviewed` only after this review.
+- `DUPLICATE` (exit `3`): stop before drafting and show the user the matching title and path. Continue only when the user explicitly requests an update or sequel; define what has changed and use `--allow-topic-repeat`.
+- Check failure (exit `2` or another unexpected code): stop. Do not treat a missing or unreadable history root as a clean result.
+
+Changing only the headline, opening anecdote, examples, or visual style does not create a new topic when the core question and conclusion remain the same. For a distinct follow-up, identify a genuinely different audience, time window, evidence set, operational decision, or unresolved question.
+
+The `--generate-from` wrapper enforces this gate before invoking `generate_article.py` and requires `--topic`. Set `TOM_WECHAT_HISTORY_ROOT` or pass `--history-root` when the archive is elsewhere.
+
+## Mandatory Human Prose Gate
+
+Every article this skill writes, rewrites, or polishes must go through the `human-writing` skill. Load it before outlining and apply its revision rules before preview. A technically correct article that reads like a model report is not an acceptable deliverable.
+
+### Before drafting
+
+1. Load `human-writing`, then load `references/forum-prose.md` and `references/reality.md` for source-grounded technical articles.
+2. Count concrete material. A 1200-plus-character Chinese article needs at least five specific items with a traceable origin, and they must form one real process rather than five adjacent opinions.
+3. When material is short, search first, then ask the user at most three questions, then shorten the article. Never pad with restated points, invented examples, or hypothetical people.
+4. Fix the speaking position. Decide what the author actually knows, what is inference, and where the judgment stops.
+
+### While drafting
+
+- Open on a concrete situation, a direct answer, or one odd fact. Do not announce the article structure.
+- Give every section a new fact, action, distinction, or consequence. Restating a point in new words is padding.
+- Put the subject and action early, then attach time, cause, and condition.
+- Let paragraph length vary. Reserve single-sentence paragraphs for real pauses.
+- Keep judgments visible and place their evidence nearby.
+- Stop when the point is finished. Do not add a closing summary, a symmetry callback, or an era-scale flourish.
+
+### Hard bans in the delivered text
+
+These cover the title, headings, body, image captions, and quoted material. One hit blocks preview and upload.
+
+- No Chinese or English colons in prose. URLs, code, and unchangeable machine fields are exempt.
+- No em dash, double dash, or en dash.
+- No reversal templates such as 不是……而是……, 并非……而是……, 不在于……而在于……, 与其说……不如说……, 不只……还……, 表面……实际……, 看似……实则…….
+- No 不丢, 说白了, 说穿了, 先说结论.
+- No insight signposts used to inflate a paragraph, such as 更微妙的是, 还有一层, 值得注意的是, 需要指出的是, 从某种意义上说.
+- No business or model jargon in place of people, actions, money, time, and consequences. Follow the hard-banned list in `human-writing/references/revision.md`.
+- No borrowed-world metaphors such as 仓库, 抽屉, 温度, 死亡, 坍塌, 浪潮, 钥匙, 底座 wrapping abstract concepts in non-fiction.
+
+### Enforced revision gate
+
+After the Markdown is finalized and before rendering the preview:
+
+```bash
+python3 ~/.codex/skills/human-writing/scripts/check_prose.py /absolute/path/article.md
+```
+
+Treat a non-zero exit as a blocking failure and keep revising until the banned items reach zero. Context-dependent warnings still need a manual pass. When the script flags mechanical listing, uniform paragraph shape, repeated signposts, or stacked metaphors, rewrite rather than dismiss it.
+
+Run this gate again after any content edit, including edits requested between two uploads. Do not reuse an earlier passing result for changed text.
+
+Two failure patterns deserve specific attention in this skill's output.
+
+- Numbered enumeration replacing prose. A section written as 第一项 through 第七项 should become grouped narrative that explains why the items belong together, while keeping every locked fact intact.
+- A closing paragraph that summarizes the whole article. Delete it and let the last concrete judgment end the piece.
+
+When polishing an existing article, preserve its facts, dates, versions, product names, causal wording, and stated uncertainty. Rewriting for voice must not change what the article claims.
 
 ## Optional Content Tools
 
@@ -326,6 +403,7 @@ Classify failures before retrying:
 
 - **Preflight**: missing source, cover, image, Python, adapter, or credentials.
 - **Preparation**: unsupported image conversion or malformed metadata.
+- **Prose revision**: `check_prose.py` reports banned punctuation, reversal templates, jargon, or signposts.
 - **Rendering**: Markdown/theme conversion or preview generation failure.
 - **Media upload**: cover/body image API failure, including errors such as `40113`.
 - **Draft creation**: API rejection after media upload.
@@ -339,6 +417,7 @@ After preparation, report:
 - Prepared Markdown path.
 - Preview path or paths.
 - Resolved title, author, cover, body image count, and theme.
+- The `check_prose.py` result for the delivered text.
 - Any warnings or skipped optional checks.
 
 After upload, additionally report:
