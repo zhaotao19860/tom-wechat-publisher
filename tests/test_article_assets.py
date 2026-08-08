@@ -131,6 +131,18 @@ cover_typography: 'horizontal'
         self.assertNotIn("prefer fewer", prompt)
         self.assertNotIn("two lines", prompt)
 
+    def test_cover_prompt_preserves_legacy_two_line_poem(self) -> None:
+        generate_article = load_script("generate_article.py")
+        lines = ["旧名已散新名渡", "一纸回音半字讹"]
+        prompt = generate_article._build_image_prompt(
+            {"kind": "cover", "cover_text": lines},
+            "测试文章",
+        )
+        for line in lines:
+            self.assertIn(line, prompt)
+        self.assertIn("exactly two lines", prompt)
+        self.assertNotIn("exactly four lines", prompt)
+
     def test_ocr_does_not_require_title_for_no_text_ai_slot(self) -> None:
         ocr = load_script("ocr_validate.py")
         spec = {

@@ -2028,8 +2028,10 @@ def _build_image_prompt(spec: dict, article_title: str) -> str:
 
     if kind == "cover":
         poem_instruction = cover_poem_block or "derive an exact four-line Chinese quatrain from the article title and section notes"
+        poem_line_count = len(cover_poem) or 4
+        poem_line_count_text = {2: "two", 4: "four"}.get(poem_line_count, str(poem_line_count))
         text_policy_block = f"""TEXT POLICY (cover poem calligraphy)
-Render exactly four lines of this short Chinese poem from the current article:
+Render exactly {poem_line_count_text} lines of this short Chinese poem from the current article:
 {poem_instruction}
 
 Rules:
