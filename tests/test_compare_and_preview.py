@@ -50,6 +50,30 @@ class CompareAndPreviewTests(unittest.TestCase):
             self.assertTrue(output.is_file())
             self.assertTrue((target / "body.png").is_file())
 
+    def test_persistent_preview_adds_utf8_charset(self) -> None:
+        persist = load_script("persist_preview.py")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            staged = root / "staged"
+            target = root / "preview"
+            staged.mkdir()
+            preview = staged / "preview.html"
+            preview.write_text(
+                "<html><head><title>预览</title></head><body>中文</body></html>",
+                encoding="utf-8",
+            )
+
+            output = persist.persist_preview(preview, staged, target)
+
+            self.assertIn('<meta charset="utf-8">', output.read_text(encoding="utf-8"))
+
+    def test_charset_normalizer_handles_fragment_without_head(self) -> None:
+        persist = load_script("persist_preview.py")
+
+        normalized = persist.ensure_utf8_charset("<section>中文</section>")
+
+        self.assertTrue(normalized.startswith('<meta charset="utf-8">'))
+
 
 if __name__ == "__main__":
     unittest.main()
