@@ -44,6 +44,15 @@ By default, --preview-themes opens generated HTML previews; use --no-open-previe
 USAGE
 }
 
+mask_app_id() {
+  local value="${1:-}"
+  if [[ ${#value} -le 8 ]]; then
+    printf '***\n'
+  else
+    printf '%s...%s\n' "${value:0:4}" "${value: -4}"
+  fi
+}
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 skill_dir="$(cd "$script_dir/.." && pwd)"
 # Set WECHAT_APP_ID explicitly for draft uploads; public builds must not bind to a personal account.
@@ -641,6 +650,7 @@ if [[ -z "$wechat_app_id" || -z "$wechat_app_secret" ]]; then
   echo "ERROR: WeChat AppID/AppSecret not found in environment or Keychain." >&2
   exit 2
 fi
+printf 'Target WeChat AppID: %s\n' "$(mask_app_id "$wechat_app_id")"
 upload_cmd=(env WECHAT_APP_ID="$wechat_app_id" WECHAT_APP_SECRET="$wechat_app_secret" wenyan publish --file "$prepared_file" --custom-theme "$theme_file" --highlight "$highlight")
 if [[ "$footnote" -eq 0 ]]; then
   upload_cmd+=(--no-footnote)
@@ -659,4 +669,10 @@ if grep -Eiq '(^|[^[:alnum:]_])(error|failed|failure)([^[:alnum:]_]|$)|errcode[^
   exit 1
 fi
 
+wechat_failure_context="draft creation evidence: ${article}"
+if ! draft_media_id="$("$PYTHON" "$script_dir/validate_publish_output.py" "$upload_log")"; then
+  echo "ERROR: draft creation evidence validation failed." >&2
+  exit 1
+fi
+printf 'Draft Media ID: %s\n' "$draft_media_id"
 printf 'Draft created successfully.\n'

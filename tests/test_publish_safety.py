@@ -22,7 +22,12 @@ class WrapperFixture:
 
 class PublishSafetyTests(unittest.TestCase):
     def run_wrapper_with_fakes(
-        self, *, upload: bool, checker_exit: int = 0, extra_args: tuple[str, ...] = ()
+        self,
+        *,
+        upload: bool,
+        checker_exit: int = 0,
+        extra_args: tuple[str, ...] = (),
+        wenyan_publish_output: str = "published successfully\nmedia_id=test-draft",
     ) -> tuple[subprocess.CompletedProcess[str], WrapperFixture]:
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -42,7 +47,7 @@ class PublishSafetyTests(unittest.TestCase):
             "case \"$1\" in\n"
             "  --version) echo '2.0.8' ;;\n"
             "  render) echo '<section>preview</section>' ;;\n"
-            "  publish) echo 'media_id=test-draft' ;;\n"
+            "  publish) printf '%s\\n' \"$WENYAN_PUBLISH_OUTPUT\" ;;\n"
             "esac\n",
             encoding="utf-8",
         )
@@ -83,6 +88,7 @@ class PublishSafetyTests(unittest.TestCase):
         env["TOM_WECHAT_CHECK_PROSE"] = str(checker)
         env["WECHAT_APP_ID"] = "test-app-id"
         env["WECHAT_APP_SECRET"] = "test-app-secret"
+        env["WENYAN_PUBLISH_OUTPUT"] = wenyan_publish_output
         command = [
             "/bin/bash",
             str(ROOT / "scripts/publish_draft.sh"),
@@ -113,6 +119,22 @@ class PublishSafetyTests(unittest.TestCase):
         publish = next(line for line in invocations if line.startswith("publish "))
         self.assertIn("--no-footnote", render)
         self.assertIn("--no-footnote", publish)
+
+    def test_upload_reports_masked_app_id_and_media_id(self) -> None:
+        result, _ = self.run_wrapper_with_fakes(upload=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Target WeChat AppID: test...p-id", result.stdout)
+        self.assertIn("Draft Media ID: test-draft", result.stdout)
+        self.assertNotIn("test-app-secret", result.stdout + result.stderr)
+
+    def test_upload_rejects_zero_exit_without_explicit_draft_evidence(self) -> None:
+        result, _ = self.run_wrapper_with_fakes(
+            upload=True, wenyan_publish_output="completed"
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Draft created successfully.", result.stdout)
 
     def test_preview_runs_configured_prose_checker(self) -> None:
         result, fixture = self.run_wrapper_with_fakes(upload=False, checker_exit=0)
