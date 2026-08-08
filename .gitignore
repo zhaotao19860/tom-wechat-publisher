@@ -19,3 +19,6 @@ body-image-comparison/
 images/
 output/
 work/
+
+# Isolated implementation worktrees
+.worktrees/
