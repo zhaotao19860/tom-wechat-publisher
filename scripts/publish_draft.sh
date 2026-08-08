@@ -34,6 +34,7 @@ Environment:
   TOM_WECHAT_CREATE_IMAGE_BASH   override path to the create-image wrapper
   TOM_WECHAT_CREATE_IMAGE_PS1    override path to the create-image PowerShell wrapper
   TOM_WECHAT_PYTHON              optional Python executable override; Python 3.9+ is required
+  TOM_WECHAT_CHECK_PROSE         optional human-writing prose checker override
   TOM_WECHAT_HISTORY_ROOT        historical article root; defaults to ~/Desktop/wechat
   TOM_WECHAT_FAILURE_NOTIFY      optional 如流 recipient for failure alerts; disabled by default
 
@@ -320,6 +321,26 @@ resolve_python() {
   printf '%s\n' "$executable"
 }
 
+resolve_check_prose() {
+  local candidate
+  local candidates=()
+  if [[ -n "${TOM_WECHAT_CHECK_PROSE:-}" ]]; then
+    candidates+=("$TOM_WECHAT_CHECK_PROSE")
+  fi
+  candidates+=(
+    "$HOME/.codex/skills/human-writing/scripts/check_prose.py"
+    "$HOME/.agents/skills/human-writing/scripts/check_prose.py"
+    "$HOME/.comate/skills/human-writing/scripts/check_prose.py"
+  )
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 PYTHON="$(resolve_python)"
 
 # ---- humanize mode ---------------------------------------------------------
@@ -475,6 +496,13 @@ if [[ "$require_body_images" -eq 1 ]]; then
   wechat_failure_context="body-image-preflight: ${article}"
   "$PYTHON" "$script_dir/validate_body_images.py" "$article" --spec "$image_specs" --min 3 >&2
 fi
+
+if ! check_prose_script="$(resolve_check_prose)"; then
+  echo "ERROR: prose preflight checker not found; set TOM_WECHAT_CHECK_PROSE." >&2
+  exit 2
+fi
+wechat_failure_context="prose preflight: ${article}"
+"$PYTHON" "$check_prose_script" "$article" >&2
 
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/wechat-draft.XXXXXX")"
 cleanup() {
