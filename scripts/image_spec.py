@@ -676,14 +676,14 @@ def _cover_keyword_phrases(title: str, article_text: str) -> list[str]:
     text = _strip_md(f"{title} {article_text}")
     lower = text.lower()
     phrase_rules = [
-        (("dns", "限速"), "云上问名"),
-        (("免费", "账本"), "免费账本"),
-        (("基础设施", "成本"), "成本入水"),
-        (("10 万", "pv"), "十万非客"),
-        (("权威", "递归"), "权递有界"),
-        (("爬虫", "ai"), "机流渐涨"),
-        (("迁移", "站长"), "站长临河"),
-        (("sla", "付费"), "稳字有价"),
+        (("dns", "限速"), "云上问名急"),
+        (("免费", "账本"), "免费非无价"),
+        (("基础设施", "成本"), "成本入深潭"),
+        (("10 万", "pv"), "十万非客流"),
+        (("权威", "递归"), "权递各有界"),
+        (("爬虫", "ai"), "机流渐如潮"),
+        (("迁移", "站长"), "站长临河望"),
+        (("sla", "付费"), "稳字自有价"),
     ]
     phrases: list[str] = []
     for needles, phrase in phrase_rules:
@@ -704,8 +704,21 @@ def _cover_keyword_phrases(title: str, article_text: str) -> list[str]:
     return out
 
 
+DEFAULT_COVER_QUATRAIN = ["山水开新卷", "风云入远汀", "孤灯查旧录", "一问见分明"]
+
+
+def _four_line_cover_poem(candidates: list[str]) -> list[str]:
+    lines = [line for line in candidates if re.fullmatch(r"[\u4e00-\u9fff]{5}", line)]
+    for fallback in DEFAULT_COVER_QUATRAIN:
+        if fallback not in lines:
+            lines.append(fallback)
+        if len(lines) == 4:
+            break
+    return lines[:4]
+
+
 def _cover_poem_lines(title: str, sections: list[tuple[str, str]]) -> list[str]:
-    """Create two or four short calligraphy lines grounded in the current article.
+    """Create four short calligraphy lines grounded in the current article.
 
     Prefer article-level poetic phrases over sentence truncation. This keeps AI
     covers in the intended Chinese-painting mode and avoids garbled half-lines.
@@ -713,19 +726,15 @@ def _cover_poem_lines(title: str, sections: list[tuple[str, str]]) -> list[str]:
     article_text = _strip_md(" ".join([title, *[f"{sec_title} {sec_body}" for sec_title, sec_body in sections[:6]]]))
     lower = article_text.lower()
     if all(token in lower for token in ("dmarc", "dnssec")) and ("compact denial" in lower or "nxname" in lower):
-        return ["空名问有无", "墨证辨真伪"]
+        return _four_line_cover_poem(["空名问有无", "墨证辨真伪"])
     if (
         ("phantom squatting" in lower or "幻觉域名" in article_text or "胡编" in article_text)
         and ("域名" in article_text or "dns" in lower)
     ):
-        return ["幻名浮水面", "真址辨归途"]
+        return _four_line_cover_poem(["幻名浮水面", "真址辨归途"])
     if ("ai" in lower or "模型" in article_text) and "域名" in article_text and "钓鱼" in article_text:
-        return ["模型生幻名", "问路辨真伪"]
+        return _four_line_cover_poem(["模型生幻名", "问路辨真伪"])
     cleaned = _cover_keyword_phrases(title, article_text)
-    if len(cleaned) >= 4:
-        return cleaned[:4]
-    if len(cleaned) >= 2:
-        return cleaned[:2]
     fallback_candidates: list[str] = []
     for sec_title, sec_body in sections[:3]:
         fallback_candidates.append(sec_title)
@@ -734,11 +743,7 @@ def _cover_poem_lines(title: str, sections: list[tuple[str, str]]) -> list[str]:
         line = _poetic_cover_line(candidate)
         if line and line not in cleaned:
             cleaned.append(line)
-        if len(cleaned) >= 2:
-            return cleaned[:2]
-    if cleaned:
-        return [cleaned[0], "清风读其微"]
-    return ["山水开卷", "清风读微"]
+    return _four_line_cover_poem(cleaned)
 
 
 def _complete_ascii_tail(original: str, cut: str, n: int, max_extra: int = 36) -> str:

@@ -2027,9 +2027,9 @@ def _build_image_prompt(spec: dict, article_title: str) -> str:
         )
 
     if kind == "cover":
-        poem_instruction = cover_poem_block or "derive a two-line Chinese poem from the article title and section notes"
+        poem_instruction = cover_poem_block or "derive an exact four-line Chinese quatrain from the article title and section notes"
         text_policy_block = f"""TEXT POLICY (cover poem calligraphy)
-Render exactly this short Chinese poem from the current article, either two lines or four lines:
+Render exactly four lines of this short Chinese poem from the current article:
 {poem_instruction}
 
 Rules:
@@ -2037,7 +2037,7 @@ Rules:
 - Place the poem as a tasteful vertical or horizontal inscription within the center safe zone, like a seal-and-inscription area on a guohua cover.
 - Keep characters large, sparse, and legible on a phone screen; avoid tiny body text.
 - Do not add any other readable text, English words, numbers, URLs, UI labels, fake stamps, or invented captions.
-- If the model cannot render all poem lines cleanly, prefer fewer large accurate lines over many small garbled characters."""
+- If any character is unclear, repair it without omitting, merging, duplicating, or replacing a line."""
         cover_text_block = """COVER-SPECIFIC STYLE
 Prioritize AI-generated cover art in Chinese painting style: ink wash, xuan paper texture, mineral color accents, negative space, mist, mountains/water/bamboo/plum/pavilion metaphors, and a refined editorial WeChat cover composition. Avoid modern SaaS cards, dashboards, cyber wallpaper, UI panels, and decorative network backgrounds on the cover."""
     elif allow_text:

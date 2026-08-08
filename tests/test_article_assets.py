@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,8 +16,17 @@ def load_script(name: str):
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    sys.modules[path.stem] = module
     spec.loader.exec_module(module)
     return module
+
+
+def assert_generated_quatrain(test: unittest.TestCase, lines: list[str]) -> None:
+    test.assertEqual(len(lines), 4)
+    test.assertEqual(len({len(line) for line in lines}), 1)
+    test.assertIn(len(lines[0]), {5, 7})
+    for line in lines:
+        test.assertRegex(line, r"^[\u4e00-\u9fff]{5,7}$")
 
 
 class ArticleAssetTests(unittest.TestCase):
@@ -96,6 +106,30 @@ cover_typography: 'horizontal'
             self.assertEqual(cover["cover_text"], ["旧名已散新名渡", "一纸回音半字讹"])
             self.assertEqual(cover["cover_style"], "青绿山水")
             self.assertEqual(cover["cover_typography"], "horizontal")
+
+    def test_generated_cover_poems_are_four_line_quatrains(self) -> None:
+        image_spec = load_script("image_spec.py")
+        cases = [
+            ("DMARC 与 DNSSEC", [("原理", "Compact Denial 与 NXNAME 处理空名")]),
+            ("DNS 免费服务", [("收费", "基础设施成本与 SLA 付费")]),
+            ("普通技术文章", [("现象", "团队在夜间核对服务记录")]),
+        ]
+        for title, sections in cases:
+            with self.subTest(title=title):
+                assert_generated_quatrain(self, image_spec._cover_poem_lines(title, sections))
+
+    def test_cover_prompt_requires_all_four_poem_lines(self) -> None:
+        generate_article = load_script("generate_article.py")
+        lines = ["山水开新卷", "风云入远汀", "孤灯查旧录", "一问见分明"]
+        prompt = generate_article._build_image_prompt(
+            {"kind": "cover", "cover_text": lines},
+            "测试文章",
+        )
+        for line in lines:
+            self.assertIn(line, prompt)
+        self.assertIn("exactly four lines", prompt)
+        self.assertNotIn("prefer fewer", prompt)
+        self.assertNotIn("two lines", prompt)
 
     def test_ocr_does_not_require_title_for_no_text_ai_slot(self) -> None:
         ocr = load_script("ocr_validate.py")
