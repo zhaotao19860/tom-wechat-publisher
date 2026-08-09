@@ -74,6 +74,16 @@ class CompareAndPreviewTests(unittest.TestCase):
 
         self.assertTrue(normalized.startswith('<meta charset="utf-8">'))
 
+    def test_charset_normalizer_replaces_gbk_declaration(self) -> None:
+        persist = load_script("persist_preview.py")
+
+        normalized = persist.ensure_utf8_charset(
+            '<html><head><meta charset="gbk"><title>预览</title></head></html>'
+        )
+
+        self.assertIn('<meta charset="utf-8">', normalized)
+        self.assertNotIn('charset="gbk"', normalized.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

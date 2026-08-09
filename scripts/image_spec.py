@@ -708,13 +708,10 @@ DEFAULT_COVER_QUATRAIN = ["山水开新卷", "风云入远汀", "孤灯查旧录
 
 
 def _four_line_cover_poem(candidates: list[str]) -> list[str]:
-    lines = [line for line in candidates if re.fullmatch(r"[\u4e00-\u9fff]{5}", line)]
-    for fallback in DEFAULT_COVER_QUATRAIN:
-        if fallback not in lines:
-            lines.append(fallback)
-        if len(lines) == 4:
-            break
-    return lines[:4]
+    lines = [line for line in candidates if re.fullmatch(r"[\u4e00-\u9fff]{5}", line)][:4]
+    for slot in range(len(lines), 4):
+        lines.append(DEFAULT_COVER_QUATRAIN[slot])
+    return lines
 
 
 def _cover_poem_lines(title: str, sections: list[tuple[str, str]]) -> list[str]:

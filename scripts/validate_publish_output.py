@@ -8,6 +8,10 @@ from pathlib import Path
 SUCCESS_RE = re.compile(
     r"发布成功|draft\s+created\s+successfully|publish(?:ed)?\s+successfully", re.I
 )
+FAILURE_RE = re.compile(
+    r"未\s*发布成功|发布失败|草稿(?:创建)?失败|\b(?:not|never|failed|failure|error)\b",
+    re.I,
+)
 MEDIA_ID_RE = re.compile(
     r"(?<![A-Za-z0-9_])media[ _-]?id(?![A-Za-z0-9_])\s*[:=]\s*"
     r"([A-Za-z0-9_-]+)(?![A-Za-z0-9_-])",
@@ -22,7 +26,7 @@ def extract_draft_media_id(output: str) -> str:
         if not match:
             continue
         media_id_found = True
-        if SUCCESS_RE.search(line):
+        if SUCCESS_RE.search(line) and not FAILURE_RE.search(line):
             return match.group(1)
     if not media_id_found:
         raise ValueError("draft Media ID was not found")

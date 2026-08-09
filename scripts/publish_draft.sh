@@ -656,20 +656,25 @@ if [[ -z "$wechat_app_id" || -z "$wechat_app_secret" ]]; then
   echo "ERROR: WeChat AppID/AppSecret not found in environment or Keychain." >&2
   exit 2
 fi
-printf 'Target WeChat AppID: %s\n' "$(mask_app_id "$wechat_app_id")"
+masked_wechat_app_id="$(mask_app_id "$wechat_app_id")"
+printf 'Target WeChat AppID: %s\n' "$masked_wechat_app_id"
 upload_cmd=(env WECHAT_APP_ID="$wechat_app_id" WECHAT_APP_SECRET="$wechat_app_secret" wenyan publish --file "$prepared_file" --custom-theme "$theme_file" --highlight "$highlight")
 if [[ "$footnote" -eq 0 ]]; then
   upload_cmd+=(--no-footnote)
 fi
 upload_log="$work_dir/upload.log"
 set +e
-"${upload_cmd[@]}" 2>&1 | WECHAT_APP_SECRET="$wechat_app_secret" "$PYTHON" -c '
+"${upload_cmd[@]}" 2>&1 | WECHAT_APP_ID="$wechat_app_id" WECHAT_APP_SECRET="$wechat_app_secret" MASKED_WECHAT_APP_ID="$masked_wechat_app_id" "$PYTHON" -c '
 import os
 import sys
 
 secret = os.environ["WECHAT_APP_SECRET"].encode("utf-8")
+app_id = os.environ["WECHAT_APP_ID"].encode("utf-8")
+masked_app_id = os.environ["MASKED_WECHAT_APP_ID"].encode("utf-8")
 output = sys.stdin.buffer.read()
-sys.stdout.buffer.write(output.replace(secret, b"[REDACTED]"))
+output = output.replace(secret, b"[REDACTED]")
+output = output.replace(app_id, masked_app_id)
+sys.stdout.buffer.write(output)
 ' | tee "$upload_log"
 upload_statuses=("${PIPESTATUS[@]}")
 set -e

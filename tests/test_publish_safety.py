@@ -32,6 +32,7 @@ class PublishSafetyTests(unittest.TestCase):
         wenyan_publish_output: str = "published successfully, media_id=test-draft",
         app_id: str = "test-app-id",
         wenyan_leak_secret: bool = False,
+        wenyan_leak_app_id: bool = False,
         notify_capture: bool = False,
     ) -> tuple[subprocess.CompletedProcess[str], WrapperFixture]:
         temp = tempfile.TemporaryDirectory()
@@ -55,7 +56,7 @@ class PublishSafetyTests(unittest.TestCase):
             "case \"$1\" in\n"
             "  --version) echo '2.0.8' ;;\n"
             "  render) echo '<section>preview</section>' ;;\n"
-            "  publish) if [ \"$WENYAN_LEAK_SECRET\" = 1 ]; then printf 'error: secret=%s\\n' \"$WECHAT_APP_SECRET\" >&2; exit 1; fi; printf '%s\\n' \"$WENYAN_PUBLISH_OUTPUT\" ;;\n"
+            "  publish) if [ \"$WENYAN_LEAK_SECRET\" = 1 ]; then printf 'error: secret=%s\\n' \"$WECHAT_APP_SECRET\" >&2; exit 1; fi; if [ \"$WENYAN_LEAK_APP_ID\" = 1 ]; then printf 'error: app_id=%s\\n' \"$WECHAT_APP_ID\" >&2; exit 1; fi; printf '%s\\n' \"$WENYAN_PUBLISH_OUTPUT\" ;;\n"
             "esac\n",
             encoding="utf-8",
         )
@@ -99,6 +100,7 @@ class PublishSafetyTests(unittest.TestCase):
         env["WECHAT_APP_SECRET"] = "test-app-secret"
         env["WENYAN_PUBLISH_OUTPUT"] = wenyan_publish_output
         env["WENYAN_LEAK_SECRET"] = "1" if wenyan_leak_secret else "0"
+        env["WENYAN_LEAK_APP_ID"] = "1" if wenyan_leak_app_id else "0"
         if notify_capture:
             home = root / "home"
             infoflow = home / ".comate/skills/infoflow-message-group/scripts"
@@ -174,6 +176,25 @@ class PublishSafetyTests(unittest.TestCase):
         upload_log = next((fixture.root / "tmp").glob("wechat-draft.*/upload.log"))
         self.assertNotIn(secret, upload_log.read_text(encoding="utf-8"))
         self.assertNotIn(secret, fixture.notification_log.read_text(encoding="utf-8"))
+
+    def test_upload_masks_adapter_app_id_in_output_log_and_notification(self) -> None:
+        result, fixture = self.run_wrapper_with_fakes(
+            upload=True,
+            extra_args=("--keep-temp",),
+            wenyan_leak_app_id=True,
+            notify_capture=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        full_app_id = "test-app-id"
+        masked_app_id = "test...p-id"
+        self.assertNotIn(full_app_id, result.stdout + result.stderr)
+        self.assertIn(masked_app_id, result.stdout)
+        upload_log = next((fixture.root / "tmp").glob("wechat-draft.*/upload.log"))
+        upload_output = upload_log.read_text(encoding="utf-8")
+        self.assertNotIn(full_app_id, upload_output)
+        self.assertIn(f"error: app_id={masked_app_id}", upload_output)
+        self.assertNotIn(full_app_id, fixture.notification_log.read_text(encoding="utf-8"))
 
     def test_upload_rejects_zero_exit_without_explicit_draft_evidence(self) -> None:
         result, _ = self.run_wrapper_with_fakes(

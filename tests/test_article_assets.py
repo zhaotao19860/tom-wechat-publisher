@@ -118,6 +118,13 @@ cover_typography: 'horizontal'
             with self.subTest(title=title):
                 assert_generated_quatrain(self, image_spec._cover_poem_lines(title, sections))
 
+    def test_partial_cover_poem_uses_remaining_fallback_slots(self) -> None:
+        image_spec = load_script("image_spec.py")
+
+        lines = image_spec._four_line_cover_poem(["江城夜未眠", "风雨催人行"])
+
+        self.assertEqual(lines, ["江城夜未眠", "风雨催人行", "孤灯查旧录", "一问见分明"])
+
     def test_cover_prompt_requires_all_four_poem_lines(self) -> None:
         generate_article = load_script("generate_article.py")
         lines = ["山水开新卷", "风云入远汀", "孤灯查旧录", "一问见分明"]

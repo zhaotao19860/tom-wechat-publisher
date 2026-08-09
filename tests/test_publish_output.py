@@ -35,6 +35,16 @@ class PublishOutputTests(unittest.TestCase):
                 "published successfully\nMedia ID: orphan-id\n"
             )
 
+    def test_rejects_negated_chinese_success_wording(self) -> None:
+        with self.assertRaisesRegex(ValueError, "success"):
+            validator.extract_draft_media_id("未发布成功，Media ID: rejected-id\n")
+
+    def test_rejects_negated_english_success_wording(self) -> None:
+        with self.assertRaisesRegex(ValueError, "success"):
+            validator.extract_draft_media_id(
+                "not published successfully, media_id=rejected-id\n"
+            )
+
     def test_cli_reports_generic_error_for_unreadable_log(self) -> None:
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):

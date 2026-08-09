@@ -9,12 +9,24 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 
-CHARSET_RE = re.compile(r"<meta\s+[^>]*charset\s*=", flags=re.I)
+META_TAG_RE = re.compile(r"<meta\b[^>]*>", flags=re.I)
+CHARSET_RE = re.compile(
+    r"(\bcharset\s*=\s*)([\"']?)([A-Za-z0-9._:-]+)(\2)", flags=re.I
+)
 
 
 def ensure_utf8_charset(html: str) -> str:
-    if CHARSET_RE.search(html):
-        return html
+    meta_tags = list(META_TAG_RE.finditer(html))
+    if any(CHARSET_RE.search(match.group(0)) for match in meta_tags):
+        return META_TAG_RE.sub(
+            lambda match: CHARSET_RE.sub(
+                lambda charset: (
+                    f"{charset.group(1)}{charset.group(2)}utf-8{charset.group(2)}"
+                ),
+                match.group(0),
+            ),
+            html,
+        )
     meta = '<meta charset="utf-8">'
     if re.search(r"<head(?:\s[^>]*)?>", html, flags=re.I):
         return re.sub(r"(<head(?:\s[^>]*)?>)", rf"\1{meta}", html, count=1, flags=re.I)
