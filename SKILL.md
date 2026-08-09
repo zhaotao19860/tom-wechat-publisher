@@ -239,7 +239,7 @@ The cover should express the article concept through Chinese visual language rat
 
 ### Mandatory poetic inscription
 
-Every new or regenerated cover must include an original four-line Chinese poetic inscription derived from the article. The four lines should follow this shape: scene, tension, action, consequence. This is a generation contract, not a request for a title paraphrase.
+Every new or regenerated cover must include an original four-line Chinese poetic inscription derived from the article. All four lines must use one consistent length, either exactly 5 or exactly 7 Han characters per line. The four lines should follow this shape: scene, tension, action, consequence. This is a generation contract, not a request for a title paraphrase.
 
 1. Write the poem after the article is finalized. Extract the article's central image, tension, and consequence rather than paraphrasing its title.
 2. Keep the language concise and classically inflected, but understandable. Do not force technical terms, product names, English, CVE/GHSA identifiers, or marketing slogans into the poem.
@@ -265,11 +265,11 @@ cover_poem:
 cover_typography: "vertical"
 ```
 
-`cover_poem` for a new or regenerated cover must contain exactly 4 non-empty lines. The validator retains a two-line path only for an unchanged historical article whose existing cover and poem are being preserved for compatibility; do not use that path for generation or regeneration. `cover_typography` must be one of `vertical`, `horizontal`, or `split`.
+`cover_poem` for a new or regenerated cover must contain exactly 4 non-empty lines, and all four lines must have the same length of exactly 5 or exactly 7 Han characters. The validator retains a two-line path only for an unchanged historical article whose existing cover and poem are being preserved for compatibility; do not use that path for generation or regeneration. `cover_typography` must be one of `vertical`, `horizontal`, or `split`.
 
 HTML/CSS text compositing is a last-resort fallback only after at least one integrated generation and one image-to-image repair attempt fail. It must never replace the AI painting and must never introduce a visible panel, banner, card, or backing rectangle.
 
-Before preview or upload, stop with an error if the cover is missing, `cover_generation` is not `ai`, `cover_style` is outside the allowed list, a new or regenerated poem does not contain exactly 4 lines, or typography is invalid. An unchanged historical article may retain exactly 2 lines under the explicit compatibility path. Do not silently accept a technically valid but non-compliant new cover.
+Before preview or upload, stop with an error if the cover is missing, `cover_generation` is not `ai`, `cover_style` is outside the allowed list, a new or regenerated poem does not contain exactly 4 same-length lines of 5 or 7 Han characters, or typography is invalid. An unchanged historical article may retain exactly 2 lines under the explicit compatibility path. Do not silently accept a technically valid but non-compliant new cover.
 
 ## Hybrid Body Illustration Routing
 
