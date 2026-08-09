@@ -69,6 +69,9 @@ wechat_failure_context=""
 
 send_infoflow_failure() {
   local exit_code=$?
+  if [[ $# -gt 0 ]]; then
+    exit_code="$1"
+  fi
   if [[ "$exit_code" -eq 0 || -z "$wechat_failure_context" ]]; then
     rm -f "$wechat_failure_err_log" 2>/dev/null || true
     return 0
@@ -522,6 +525,9 @@ cleanup() {
   elif [[ "$keep_temp" -eq 1 ]]; then
     printf 'Prepared upload workspace kept at: %s\n' "$work_dir" >&2
   fi
+  if [[ "$status" -ne 0 ]]; then
+    send_infoflow_failure "$status"
+  fi
   exit "$status"
 }
 trap cleanup EXIT
@@ -657,9 +663,21 @@ if [[ "$footnote" -eq 0 ]]; then
 fi
 upload_log="$work_dir/upload.log"
 set +e
-"${upload_cmd[@]}" 2>&1 | tee "$upload_log"
-upload_status=${PIPESTATUS[0]}
+"${upload_cmd[@]}" 2>&1 | WECHAT_APP_SECRET="$wechat_app_secret" "$PYTHON" -c '
+import os
+import sys
+
+secret = os.environ["WECHAT_APP_SECRET"].encode("utf-8")
+output = sys.stdin.buffer.read()
+sys.stdout.buffer.write(output.replace(secret, b"[REDACTED]"))
+' | tee "$upload_log"
+upload_statuses=("${PIPESTATUS[@]}")
 set -e
+upload_status="${upload_statuses[0]}"
+if [[ "${upload_statuses[1]}" -ne 0 || "${upload_statuses[2]}" -ne 0 ]]; then
+  echo "ERROR: failed to sanitize or record Wenyan draft upload output." >&2
+  exit 1
+fi
 if [[ "$upload_status" -ne 0 ]]; then
   echo "ERROR: wenyan draft upload failed with exit code $upload_status." >&2
   exit "$upload_status"

@@ -8,16 +8,25 @@ from pathlib import Path
 SUCCESS_RE = re.compile(
     r"发布成功|draft\s+created\s+successfully|publish(?:ed)?\s+successfully", re.I
 )
-MEDIA_ID_RE = re.compile(r"(?:media[ _-]?id)\s*[:=]\s*([A-Za-z0-9_-]+)", re.I)
+MEDIA_ID_RE = re.compile(
+    r"(?<![A-Za-z0-9_])media[ _-]?id(?![A-Za-z0-9_])\s*[:=]\s*"
+    r"([A-Za-z0-9_-]+)(?![A-Za-z0-9_-])",
+    re.I,
+)
 
 
 def extract_draft_media_id(output: str) -> str:
-    match = MEDIA_ID_RE.search(output)
-    if not match:
+    media_id_found = False
+    for line in output.splitlines():
+        match = MEDIA_ID_RE.search(line)
+        if not match:
+            continue
+        media_id_found = True
+        if SUCCESS_RE.search(line):
+            return match.group(1)
+    if not media_id_found:
         raise ValueError("draft Media ID was not found")
-    if not SUCCESS_RE.search(output):
-        raise ValueError("explicit draft success wording was not found")
-    return match.group(1)
+    raise ValueError("explicit draft success wording was not found")
 
 
 def main(argv: list[str]) -> int:
