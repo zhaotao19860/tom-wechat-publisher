@@ -312,7 +312,7 @@ bash ./scripts/publish_draft.sh \
   --no-open-preview
 ```
 
-`--preview-dir` 会持久保存 `preview.html` 及其引用的本地图片，不依赖稍后会被清理的临时目录。准备阶段会自动校验本地封面文件、`cover_generation`、国画风格、题诗行数和排版字段。
+`--preview-dir` 会持久保存 `preview.html` 及其引用的本地图片，不依赖稍后会被清理的临时目录。持久化预览统一按 UTF-8 读写，并确保 HTML 声明 `<meta charset="utf-8">`。准备阶段会自动校验本地封面文件、`cover_generation`、国画风格、题诗行数和排版字段。
 
 ### 比较多个主题
 
@@ -340,7 +340,7 @@ bash ./scripts/publish_draft.sh \
   --upload
 ```
 
-创建成功后，终端会输出 Wenyan 返回的 Media ID。Media ID 是草稿接口返回的素材标识，不代表文章已经发布或群发。
+上传时终端会先输出脱敏后的目标 AppID，例如 `test...p-id`，不会输出完整 AppID 或 App Secret。只有 Wenyan 输出明确成功措辞且包含可解析的 Media ID 时，脚本才会报告 `Draft Media ID`；退出码为 0 本身不是成功证据。Media ID 是草稿接口返回的素材标识，不代表文章已经发布或群发。
 
 ## 完整用法
 
@@ -394,6 +394,8 @@ bash ./scripts/publish_draft.sh \
   --in-place \
   --score
 ```
+
+预览和上传前都会运行 `human-writing` 的 `check_prose.py`。默认从已安装的 Skill 路径查找；需要使用组织内副本时，设置 `TOM_WECHAT_CHECK_PROSE` 为 checker 的可执行路径。找不到 checker 或检查返回非零都会阻断流程，正文修改后必须重新检查。
 
 ### 图片规格和确定性信息图
 
@@ -460,13 +462,15 @@ python3 ./scripts/ocr_validate.py \
 
 封面必须是 AI 生成的中国画风格图片，支持的风格包括：水墨写意、工笔重彩、青绿山水、宋画风、敦煌壁画风、文人画和新中式国风。
 
-封面还需要：
+新生成或重新生成的封面还需要：
 
 - 2.35:1 构图；
-- 2 行或 4 行原创题诗；
+- 恰好 4 行原创题诗，依次形成场景、张力、行动、后果；
 - 题诗与画面一体生成；
 - OCR 逐字校验；
 - 题诗错误时优先进行图生图局部修复。
+
+未改动的历史文章可以沿用恰好 2 行的旧题诗，仅用于兼容校验；新生成和重新生成不得使用两行。
 
 ### 正文图
 

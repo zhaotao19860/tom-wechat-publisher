@@ -69,7 +69,9 @@ bash ~/.comate/skills/tom-wechat-publisher/scripts/publish_draft.sh \
 ```
 
 This is the default and performs no upload. `--preview-dir` keeps `preview.html`
-and all referenced local images outside the temporary staging directory.
+and all referenced local images outside the temporary staging directory. Persistent
+previews are read and written as UTF-8, and the saved HTML declares
+`<meta charset="utf-8">` so Chinese text remains legible when reopened.
 
 ### Compare themes
 
@@ -181,6 +183,8 @@ After the Markdown is finalized and before rendering the preview:
 python3 ~/.codex/skills/human-writing/scripts/check_prose.py /absolute/path/article.md
 ```
 
+The wrapper runs this checker before preview and upload. Set `TOM_WECHAT_CHECK_PROSE` to an executable checker path when the default `human-writing` location is unavailable; the override is tried first. A missing checker or non-zero result blocks the workflow. Run the gate again after every content edit, including edits between preview and upload.
+
 Treat a non-zero exit as a blocking failure and keep revising until the banned items reach zero. Context-dependent warnings still need a manual pass. When the script flags mechanical listing, uniform paragraph shape, repeated signposts, or stacked metaphors, rewrite rather than dismiss it.
 
 Run this gate again after any content edit, including edits requested between two uploads. Do not reuse an earlier passing result for changed text.
@@ -235,7 +239,7 @@ The cover should express the article concept through Chinese visual language rat
 
 ### Mandatory poetic inscription
 
-Every cover must include an original poetic inscription derived from the article. Use exactly two or four Chinese poetic lines.
+Every new or regenerated cover must include an original four-line Chinese poetic inscription derived from the article. The four lines should follow this shape: scene, tension, action, consequence. This is a generation contract, not a request for a title paraphrase.
 
 1. Write the poem after the article is finalized. Extract the article's central image, tension, and consequence rather than paraphrasing its title.
 2. Keep the language concise and classically inflected, but understandable. Do not force technical terms, product names, English, CVE/GHSA identifiers, or marketing slogans into the poem.
@@ -254,16 +258,18 @@ cover: "images/cover-ai-poem.jpg"
 cover_generation: "ai"
 cover_style: "青绿山水"
 cover_poem:
-  - "第一句"
-  - "第二句"
+  - "景起一线入长空"
+  - "疑云压岸动秋声"
+  - "执灯寻证过深巷"
+  - "回望方知路已明"
 cover_typography: "vertical"
 ```
 
-`cover_poem` must contain exactly 2 or 4 non-empty lines. `cover_typography` must be one of `vertical`, `horizontal`, or `split`.
+`cover_poem` for a new or regenerated cover must contain exactly 4 non-empty lines. The validator retains a two-line path only for an unchanged historical article whose existing cover and poem are being preserved for compatibility; do not use that path for generation or regeneration. `cover_typography` must be one of `vertical`, `horizontal`, or `split`.
 
 HTML/CSS text compositing is a last-resort fallback only after at least one integrated generation and one image-to-image repair attempt fail. It must never replace the AI painting and must never introduce a visible panel, banner, card, or backing rectangle.
 
-Before preview or upload, stop with an error if the cover is missing, `cover_generation` is not `ai`, `cover_style` is outside the allowed list, the poem does not contain 2 or 4 lines, or typography is invalid. Do not silently accept a technically valid but non-compliant cover.
+Before preview or upload, stop with an error if the cover is missing, `cover_generation` is not `ai`, `cover_style` is outside the allowed list, a new or regenerated poem does not contain exactly 4 lines, or typography is invalid. An unchanged historical article may retain exactly 2 lines under the explicit compatibility path. Do not silently accept a technically valid but non-compliant new cover.
 
 ## Hybrid Body Illustration Routing
 
@@ -423,7 +429,8 @@ After preparation, report:
 After upload, additionally report:
 
 - Whether a draft was created.
-- The adapter-provided draft/media identifier when available.
+- The target AppID in masked form only (for example, `test...p-id`); never print the full AppID or App Secret.
+- The adapter-provided draft Media ID only when the upload output contains explicit success wording and a parseable Media ID. An exit code alone is not evidence.
 - The precise failed stage and response when unsuccessful.
 
 Never describe a preview or dry run as a successful draft upload.
