@@ -221,8 +221,13 @@ Every article prepared by this skill must use an AI-generated cover in a Chinese
 
 Before generating the cover:
 
-1. Select exactly one style for the current article. Ask the user when they are choosing the visual direction; otherwise choose the best match and report it.
-2. Allowed styles are: `水墨写意`, `工笔重彩`, `青绿山水`, `宋画风`, `敦煌壁画风`, `文人画`, and `新中式国风`.
+1. Select exactly one style for the current article. If the user names a style or is actively choosing the visual direction, honor that. Otherwise pick one style **uniformly at random** from the allowed list in step 2 and report which one was drawn. Use a real randomizer rather than choosing by judgment, because free judgment biases heavily toward landscape (`青绿山水` / 山水); the random draw exists to keep covers varied across articles. Any style in the list is acceptable for any topic. Draw it with, for example:
+
+   ```bash
+   python3 -c "import random;print(random.choice(['水墨写意','工笔重彩','青绿山水','宋画风','敦煌壁画风','文人画','新中式国风']))"
+   ```
+
+2. Allowed styles are: `水墨写意`, `工笔重彩`, `青绿山水`, `宋画风`, `敦煌壁画风`, `文人画`, and `新中式国风`. The cover scene and focal subject should suit the drawn style (for a flower-and-bird 花鸟, an interior, a figure, or an object composition, do not force a landscape), while still expressing the article's concept.
 3. Generate the cover through the `create-image` skill or its bundled image-generation wrapper. The cover must be genuinely AI-generated.
 4. Use a 2.35:1 composition suitable for a WeChat headline cover. Generate at 16:9 when the image API does not support 2.35:1, then crop deliberately to 1800x766 while preserving the focal subject.
 5. Store provenance in frontmatter:
@@ -230,7 +235,7 @@ Before generating the cover:
 ```yaml
 cover: "images/cover-ai.png"
 cover_generation: "ai"
-cover_style: "青绿山水"
+cover_style: "工笔重彩"
 ```
 
 Do not use HTML/CSS rendering, charts, screenshots, stock images, old article assets, or deterministic diagrams as the article cover. HTML-rendered images are allowed only for label-heavy body infographics.
@@ -249,14 +254,14 @@ Every new or regenerated cover must include an original four-line Chinese poetic
 6. Explicitly forbid independent text panels, floating cards, opaque banners, rectangular paper strips, UI-like containers, and visibly composited backing blocks. Do not reproduce the separated 'poem pasted over painting' look.
 7. After the first generation, verify every character and the overall integration. The rendered poem must exactly match the approved lines and contain no quotation marks, book-title marks, brackets, commas, periods, decorative punctuation, or extra characters unless the user explicitly approved them. Treat surrounding `“”`, `‘’`, `「」`, `『』`, `《》`, or sentence-ending punctuation as errors. If the poem has a wrong character, extra punctuation, missing line, bad spacing, or weak visual unity, use image-to-image editing with the generated cover as input and request a localized correction while preserving the painting.
 8. Repeat image-to-image repair when useful. Use deterministic text compositing only as the final fallback when image-to-image cannot produce correct text. Even in fallback mode, text must sit directly in existing negative space with transparent treatment; never add a separate panel or banner.
-9. Preserve mobile legibility without making the poem dominate the painting. The title inscription, landscape rhythm, and red seal should form one balanced composition.
+9. Preserve mobile legibility without making the poem dominate the painting. The title inscription, the painting's own compositional rhythm, and the red seal should form one balanced composition.
 
 Record the final inscription and composition in frontmatter:
 
 ```yaml
 cover: "images/cover-ai-poem.jpg"
 cover_generation: "ai"
-cover_style: "青绿山水"
+cover_style: "水墨写意"
 cover_poem:
   - "景起一线入长空"
   - "疑云压岸动秋声"
