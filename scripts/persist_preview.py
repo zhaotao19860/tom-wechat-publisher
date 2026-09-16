@@ -35,11 +35,16 @@ def ensure_utf8_charset(html: str) -> str:
     return meta + html
 
 
-def persist_preview(preview: Path, staged_dir: Path, target_dir: Path) -> Path:
+def persist_preview(
+    preview: Path,
+    staged_dir: Path,
+    target_dir: Path,
+    output_name: str = "preview.html",
+) -> Path:
     preview = preview.resolve()
     staged_dir = staged_dir.resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
-    output = target_dir / "preview.html"
+    output = target_dir / output_name
     html = preview.read_text(encoding="utf-8")
     output.write_text(ensure_utf8_charset(html), encoding="utf-8")
     refs = re.findall(r"(?:src|href)=[\"']([^\"']+)[\"']", html, flags=re.I)
@@ -61,6 +66,13 @@ def persist_preview(preview: Path, staged_dir: Path, target_dir: Path) -> Path:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: persist_preview.py PREVIEW STAGED_DIR TARGET_DIR")
-    print(persist_preview(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])))
+    if len(sys.argv) not in {4, 5}:
+        raise SystemExit(
+            "usage: persist_preview.py PREVIEW STAGED_DIR TARGET_DIR [OUTPUT_NAME]"
+        )
+    output_name = sys.argv[4] if len(sys.argv) == 5 else "preview.html"
+    print(
+        persist_preview(
+            Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), output_name
+        )
+    )

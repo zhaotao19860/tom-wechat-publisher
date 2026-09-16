@@ -556,15 +556,13 @@ wechat_failure_context="article-asset-preflight: ${article}"
 "$PYTHON" "$script_dir/validate_article_assets.py" "$prepared_file" >&2
 
 if [[ "$preview_themes" -eq 1 ]]; then
-  preview_dir="$work_dir"
+  preview_dir="${persistent_preview_dir:-$work_dir}"
+  mkdir -p "$preview_dir"
   preview_theme_output="$(TOM_WECHAT_PREVIEW_THEMES="${TOM_WECHAT_PREVIEW_THEMES:-}" TOM_WECHAT_PREVIEW_THEME_COUNT="${TOM_WECHAT_PREVIEW_THEME_COUNT:-5}" "$PYTHON" - <<'PY'
 import os
 
 fallback_themes = ["dns-elegant-purple", "dns-aurora-cyan", "dns-warm-orange", "dns-ocean", "dns-sakura"]
 themes = fallback_themes
-
-except Exception:
-    themes = fallback_themes
 
 preferred_themes = [
     # More expressive editorial themes first. The older simple themes remain
@@ -602,10 +600,16 @@ PY
   printf 'Preview themes: %s\n' "${preview_theme_ids[*]}"
   preview_outputs=()
   for preview_theme in "${preview_theme_ids[@]}"; do
-    preview_output="$preview_dir/article.${preview_theme}.html"
+    preview_output="$work_dir/article.${preview_theme}.html"
     "$PYTHON" "$script_dir/render_article_preview.py" --article "$prepared_file" --output "$preview_output" --theme "$preview_theme"
-    preview_outputs+=("$preview_output")
-    printf 'Preview generated [%s]: %s\n' "$preview_theme" "$preview_output"
+    if [[ -n "$persistent_preview_dir" ]]; then
+      persistent_preview_output="$($PYTHON "$script_dir/persist_preview.py" "$preview_output" "$work_dir" "$persistent_preview_dir" "article.${preview_theme}.html")"
+      preview_outputs+=("$persistent_preview_output")
+      printf 'Preview generated [%s]: %s\n' "$preview_theme" "$persistent_preview_output"
+    else
+      preview_outputs+=("$preview_output")
+      printf 'Preview generated [%s]: %s\n' "$preview_theme" "$preview_output"
+    fi
   done
   if [[ "$open_preview" -eq 1 ]]; then
     if command -v open >/dev/null 2>&1; then

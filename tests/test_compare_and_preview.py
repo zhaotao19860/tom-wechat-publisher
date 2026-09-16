@@ -50,6 +50,10 @@ class CompareAndPreviewTests(unittest.TestCase):
             self.assertTrue(output.is_file())
             self.assertTrue((target / "body.png").is_file())
 
+            named = persist.persist_preview(preview, staged, target, "article.dns-sakura.html")
+            self.assertEqual(named.name, "article.dns-sakura.html")
+            self.assertTrue(named.is_file())
+
     def test_persistent_preview_adds_utf8_charset(self) -> None:
         persist = load_script("persist_preview.py")
         with tempfile.TemporaryDirectory() as temp:
@@ -66,6 +70,7 @@ class CompareAndPreviewTests(unittest.TestCase):
             output = persist.persist_preview(preview, staged, target)
 
             self.assertIn('<meta charset="utf-8">', output.read_text(encoding="utf-8"))
+
 
     def test_charset_normalizer_handles_fragment_without_head(self) -> None:
         persist = load_script("persist_preview.py")

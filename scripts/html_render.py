@@ -1553,6 +1553,7 @@ def _swiss_shell(spec: dict, layout: str, body: str) -> str:
   .node.up .node-label {{ bottom:30px; }} .node.down .node-label {{ top:30px; }}
   .node-step {{ display:block; color:var(--grey-3); font:600 15px/1.3 {FONT_STACK_MONO}; }}
   .node-name {{ display:block; margin-top:8px; font-size:22px; line-height:1.3; overflow-wrap:anywhere; }}
+  .node-sub {{ display:block; margin-top:6px; color:var(--secondary); font-size:17px; line-height:1.35; overflow-wrap:anywhere; }}
   .system {{ display:grid; grid-template-columns:1.05fr .95fr; gap:70px; flex:1; min-height:0; }}
   .system-notes {{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; align-content:end; }}
   .system-note {{ border-top:4px solid var(--ink); padding-top:20px; }} .system-note h2 {{ font-size:30px; font-weight:400; margin-bottom:12px; }}
@@ -1625,7 +1626,7 @@ def _render_swiss_s11(spec: dict) -> str:
         return _render_flow_vertical(spec)
     nodes = []
     for i, item in enumerate(items):
-        nodes.append(f'''<div class="node {'up' if i % 2 == 0 else 'down'}"><span class="dot{' fill-accent' if i == len(items)-1 else ''}"></span><div class="node-label"><span class="node-step">{_esc(item.get("step") or str(i+1).zfill(2))}</span><span class="node-name">{_item_text(item,"label")}</span></div></div>''')
+        nodes.append(f'''<div class="node {'up' if i % 2 == 0 else 'down'}"><span class="dot{' fill-accent' if i == len(items)-1 else ''}"></span><div class="node-label"><span class="node-step">{_esc(item.get("step") or str(i+1).zfill(2))}</span><span class="node-name">{_item_text(item,"label")}</span><span class="node-sub">{_item_text(item,"sub")}</span></div></div>''')
     head = f'''<div class="head"><div><div class="kicker">PROCESS PATH</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
     return _swiss_shell(spec, "S11", head + f'<div class="timeline"><div class="nodes" style="grid-template-columns:repeat({len(nodes)},1fr)">{"".join(nodes)}</div></div>')
 

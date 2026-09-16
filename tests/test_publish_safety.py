@@ -23,6 +23,19 @@ class WrapperFixture:
 
 
 class PublishSafetyTests(unittest.TestCase):
+    def test_preview_theme_selector_python_is_valid(self) -> None:
+        wrapper = (ROOT / "scripts/publish_draft.sh").read_text(encoding="utf-8")
+        marker = '"$PYTHON" - <<\'PY\'\n'
+        start = wrapper.index(marker) + len(marker)
+        end = wrapper.index("\nPY\n  )", start)
+
+        compile(wrapper[start:end], "publish_draft-preview-theme-selector", "exec")
+
+    def test_multi_theme_preview_honors_persistent_preview_dir(self) -> None:
+        wrapper = (ROOT / "scripts/publish_draft.sh").read_text(encoding="utf-8")
+        self.assertIn('preview_dir="${persistent_preview_dir:-$work_dir}"', wrapper)
+        self.assertIn('"article.${preview_theme}.html"', wrapper)
+
     def run_wrapper_with_fakes(
         self,
         *,
