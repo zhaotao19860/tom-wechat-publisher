@@ -2711,7 +2711,17 @@ def _ai_candidate_with_retries(
     return None, "", [], errors
 
 
+def _is_mermaid_slot(spec: dict) -> bool:
+    """Structural/relational diagrams routed to the mermaid backend."""
+    return (
+        str(spec.get("render_mode") or "").strip().lower() == "mermaid"
+        or str(spec.get("illustration_backend") or "").strip().lower() == "mermaid-render"
+    )
+
+
 def _is_html_first_slot(spec: dict) -> bool:
+    if _is_mermaid_slot(spec):
+        return False
     if INFOGRAPHIC_MODE in {"ai-first", "create-image", "ai"}:
         return False
     if INFOGRAPHIC_MODE not in {"html-first", "auto", "hybrid", ""}:
@@ -2806,11 +2816,12 @@ def _lint_image_specs(specs: list[dict]) -> list[str]:
             )
         if kind in {"flow", "timeline"} and not any(str(item.get("step") or "").strip() for item in items if isinstance(item, dict)):
             errors.append(f"{filename}: {kind} needs explicit step ordering")
-        if kind == "flow":
+        if kind == "flow" and not _is_mermaid_slot(spec):
             # Sparse 4-card flow diagrams leave too much blank vertical space in
             # the HTML renderer. Require enough explanatory density up front;
             # otherwise the agent should switch to impact/checklist or enrich
-            # the step descriptions before rendering.
+            # the step descriptions before rendering. The mermaid backend
+            # auto-lays-out and is captured full-page, so it is exempt.
             sub_count = sum(1 for item in items if isinstance(item, dict) and str(item.get("sub") or "").strip())
             if len(items) < 5 or sub_count < 4:
                 errors.append(
@@ -2845,6 +2856,25 @@ def _render_html_slot(spec: dict, idx: int, images_dir: Path) -> tuple[Path, str
             f"Inspect {html_path}."
         )
     return png_path, f"html-render ({width}x{height})"
+
+
+def _render_mermaid_slot(spec: dict, idx: int, images_dir: Path) -> tuple[Path, str]:
+    """Render one structural slot via mermaid + Playwright full-page capture."""
+    if _html_render is None:
+        raise RuntimeError(
+            "Renderer (html_render.py) is unavailable for the mermaid backend. "
+            "Install Playwright or set TOM_WECHAT_INFOGRAPHIC_MODE=ai-first for body diagrams."
+        )
+    png_name = f"{spec.get('filename')}.png"
+    png_path = images_dir / png_name
+    png_path.unlink(missing_ok=True)
+    ok = _html_render.render_mermaid_png(spec, png_path, html_dir=images_dir / "html")
+    if not ok:
+        raise RuntimeError(
+            f"Mermaid render failed for slot {idx+1} ({png_name}). "
+            f"Inspect {images_dir / 'html' / (str(spec.get('filename')) + '.mermaid.html')}."
+        )
+    return png_path, f"mermaid-render (width {_html_render.MERMAID_WIDTH}, full-page)"
 
 
 def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> dict[str, Path]:
@@ -2889,7 +2919,10 @@ def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> d
     # Only AI-first slots need the /create-image precheck. Body information
     # graphics default to HTML rendering and should not be blocked by AI auth or
     # backend availability.
-    need_ai = any(not _is_html_first_slot(spec.to_dict()) for spec in specs)
+    need_ai = any(
+        not _is_html_first_slot(spec.to_dict()) and not _is_mermaid_slot(spec.to_dict())
+        for spec in specs
+    )
     ai_available = False
     if need_ai:
         ai_available = (CREATE_IMAGE_BASH.exists() or CREATE_IMAGE_PS1.exists()) and bool(
@@ -2918,6 +2951,30 @@ def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> d
             prompt_file = _save_prompt(prompt_dir, f"{idx + 1:02d}-{_resolve_visual_type(spec.get('kind','summary'))}-{spec['filename']}", prompt_text)
             resolution = os.environ.get("TOM_WECHAT_CREATE_IMAGE_RESOLUTION", "2K")
             aspect_ratio = "21:9" if spec.get("kind") == "cover" else "16:9"
+
+            if _is_mermaid_slot(spec):
+                mm_path, mm_source = _render_mermaid_slot(spec, idx, images_dir)
+                if mm_path != final_path:
+                    shutil.copy2(mm_path, final_path)
+                produced[filename] = final_path
+                spec_obj.rendered_by = "mermaid-render"
+                spec_obj.overlay_applied = False
+                audit_reports.append({
+                    "file": str(final_path.relative_to(target_dir)),
+                    "title": spec.get("title_zh") or plan.title,
+                    "visual_theme": IMAGE_VISUAL_THEME,
+                    "prompt": str(prompt_file.relative_to(target_dir)),
+                    "source": mm_source,
+                    "warnings": [],
+                    "candidates": [{
+                        "source": "mermaid-render",
+                        "path": mm_path,
+                        "warnings": [],
+                        "score": 100,
+                    }],
+                })
+                print(f"  - {filename}: {mm_source} selected (mermaid)")
+                continue
 
             if _is_html_first_slot(spec):
                 html_path, html_source = _render_html_slot(spec, idx, images_dir)

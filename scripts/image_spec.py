@@ -812,6 +812,21 @@ def _theme_palette(visual_theme: str, slot_index: int) -> tuple[int, dict]:
     return idx, palettes[slot_index % len(palettes)]
 
 
+def _numeric_series_count(items: list[dict]) -> int:
+    """Count items whose label/sub carries a comparable numeric value.
+
+    Used to keep genuine numeric comparisons on the HTML bar renderer (which
+    fills its canvas) while routing purely structural/relational content to the
+    denser mermaid backend.
+    """
+    count = 0
+    for item in items:
+        blob = " ".join(str(item.get(key) or "") for key in ("label", "sub", "value", "text"))
+        if re.search(r"\d+(?:\.\d+)?\s*(?:%|亿|万|千|倍|ms|秒|分钟|天|年|封|条|个|次|GB|MB|Kb|k|K)?", blob):
+            count += 1
+    return count
+
+
 def _assign_render_policy(spec: ImageSpec) -> None:
     exact_text = " ".join(
         [spec.title_zh, spec.subtitle, spec.source_section]
@@ -823,34 +838,43 @@ def _assign_render_policy(spec: ImageSpec) -> None:
         value = match if isinstance(match, str) else next((part for part in match if part), "")
         if value and value not in locked:
             locked.append(value)
+    numeric_series = _numeric_series_count(spec.items)
+
+    # Backend selection follows "pick whatever fits the content", never a single
+    # default. Structural/relational/procedural content goes to mermaid, which
+    # auto-lays-out densely and is captured full-page (no fixed 16:9 canvas, no
+    # large blank band). Genuine numeric series stay on the HTML bar chart, which
+    # fills its space. Scenes and impacts stay on AI (Ian) for a human anchor.
+    _MERMAID_STRUCTURE = {
+        "flow": "pipeline",
+        "relations": "hub-and-spoke",
+        "timeline": "timeline",
+        "compare": "before-after",
+        "checklist": "checklist",
+    }
 
     if spec.kind == "cover":
         spec.render_mode = "ai"
         spec.fact_risk = "low"
         spec.structure = "text-scene"
         spec.purpose = "建立文章主题和视觉记忆"
-    elif spec.kind in {"checklist", "compare", "timeline"} or len(exact_text) > 260:
-        spec.render_mode = "html"
-        spec.fact_risk = "high"
-        spec.structure = "checklist" if spec.kind == "checklist" else "data-first"
-        spec.purpose = "准确呈现可执行事实和对照信息"
-    elif spec.kind in {"flow", "relations"}:
-        spec.render_mode = "hybrid"
-        spec.fact_risk = "high" if locked else "medium"
-        spec.structure = "pipeline" if spec.kind == "flow" else "hub-and-spoke"
-        spec.purpose = "同时解释空间机制和精确处理路径"
     elif spec.kind in {"impact", "summary"}:
         spec.render_mode = "ai"
         spec.fact_risk = "low"
         spec.structure = "before-after" if spec.kind == "impact" else "text-scene"
         spec.purpose = "用场景和状态变化降低抽象理解成本"
+    elif numeric_series >= 5:
+        spec.render_mode = "html"
+        spec.fact_risk = "high"
+        spec.structure = "data-first"
+        spec.purpose = "用条形图准确呈现可比较的数值"
     else:
-        spec.render_mode = "hybrid"
-        spec.fact_risk = "medium"
-        spec.structure = "layer-stack"
-        spec.purpose = "结合视觉对象与少量精确标签解释概念"
+        spec.render_mode = "mermaid"
+        spec.fact_risk = "high" if locked else "medium"
+        spec.structure = _MERMAID_STRUCTURE.get(spec.kind, "layer-stack")
+        spec.purpose = "用密集的结构图讲清顺序、关系或对照，避免大面积留白"
 
-    if spec.render_mode in {"html", "hybrid"} and spec.fact_risk == "high" and not locked:
+    if spec.render_mode in {"html", "hybrid", "mermaid"} and spec.fact_risk == "high" and not locked:
         for item in spec.items:
             for key in ("label", "sub"):
                 value = str(item.get(key) or "").strip()
@@ -861,10 +885,13 @@ def _assign_render_policy(spec: ImageSpec) -> None:
         spec.illustration_backend = "create-image"
     elif spec.render_mode == "ai" and spec.fact_risk == "low":
         spec.illustration_backend = "ian-xiaohei-illustrations"
+    elif spec.render_mode == "mermaid":
+        spec.illustration_backend = "mermaid-render"
     elif spec.render_mode == "html":
         spec.illustration_backend = "html-render"
     else:
         spec.illustration_backend = "html-render"
+
 
     spec.labels = [
         str(item.get("label") or item.get("step") or "").strip()

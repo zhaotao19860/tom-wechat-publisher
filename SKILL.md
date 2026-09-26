@@ -113,9 +113,10 @@ The wrapper must verify:
 - Local Markdown and HTML image references resolve.
 - The cover exists locally and the mandatory AI cover metadata contract is valid.
 - Prepared images are JPEG, PNG, or GIF.
-- High-risk HTML/hybrid specs contain `locked_facts`, and body labels are article-specific.
+- High-risk HTML/hybrid/mermaid specs contain `locked_facts`, and body labels are article-specific.
 - The delivered prose passed `human-writing/scripts/check_prose.py` after the last content edit.
 - Wenyan CLI is installed and executable for preview and upload.
+- The `mermaid` npm package is installed at the skill root when any body spec uses `render_mode: mermaid` (`cd ~/.comate/skills/tom-wechat-publisher && npm install`).
 - Upload is not attempted with `--dry-run`, `--render-only`, or theme-preview mode.
 
 Use `--keep-temp` while diagnosing problems. Temporary output otherwise belongs under the system temporary directory and is removed on exit.
@@ -221,13 +222,16 @@ Every article prepared by this skill must use an AI-generated cover in a Chinese
 
 Before generating the cover:
 
-1. Select exactly one style for the current article. If the user names a style or is actively choosing the visual direction, honor that. Otherwise pick one style **uniformly at random** from the allowed list in step 2 and report which one was drawn. Use a real randomizer rather than choosing by judgment, because free judgment biases heavily toward landscape (`青绿山水` / 山水); the random draw exists to keep covers varied across articles. Any style in the list is acceptable for any topic. Draw it with, for example:
+1. Select exactly one style for the current article. If the user names a style or is actively choosing the visual direction, honor that. Otherwise **cycle through the ordered list in step 2 in sequence**: use the style that immediately follows the most recently used cover style, and wrap back to the first style after the last. This round-robin keeps consecutive articles from repeating a style until the whole list has been used, and it avoids the landscape bias of free judgment. Determine the next style with the bundled helper, which scans the history root for the last used `cover_style` and prints the one that comes next in the cycle:
 
    ```bash
-   python3 -c "import random;print(random.choice(['水墨写意','工笔重彩','青绿山水','宋画风','敦煌壁画风','文人画','新中式国风']))"
+   python3 ~/.comate/skills/tom-wechat-publisher/scripts/next_cover_style.py \
+     --history-root "${TOM_WECHAT_HISTORY_ROOT:-$HOME/Desktop/wechat}" --verbose
    ```
 
-2. Allowed styles are: `水墨写意`, `工笔重彩`, `青绿山水`, `宋画风`, `敦煌壁画风`, `文人画`, and `新中式国风`. The cover scene and focal subject should suit the drawn style (for a flower-and-bird 花鸟, an interior, a figure, or an object composition, do not force a landscape), while still expressing the article's concept.
+   Report which style was chosen and which one it followed. Any style in the list is acceptable for any topic.
+
+2. Allowed styles, in cycle order, are: `水墨写意`, `工笔重彩`, `青绿山水`, `宋画风`, `敦煌壁画风`, `文人画`, and `新中式国风`. This exact order defines the round-robin sequence in step 1, and it is kept in sync with `DEFAULT_STYLES` in `scripts/next_cover_style.py`. The cover scene and focal subject should suit the chosen style (for a flower-and-bird 花鸟, an interior, a figure, or an object composition, do not force a landscape), while still expressing the article's concept.
 3. Generate the cover through the `create-image` skill or its bundled image-generation wrapper. The cover must be genuinely AI-generated.
 4. Use a 2.35:1 composition suitable for a WeChat headline cover. Generate at 16:9 when the image API does not support 2.35:1, then crop deliberately to 1800x766 while preserving the focal subject.
 5. Store provenance in frontmatter:
@@ -308,13 +312,27 @@ Select the structure from the content rather than asking the user to pick a mode
 
 ### Route by fact risk
 
-Assign every image one `render_mode` and one `fact_risk`:
+Assign every image one `render_mode` and one `fact_risk`. Pick whatever backend
+fits the content; never default every slot to one backend. The goal for every
+body image is dense information, a sensible layout, and no large blank band.
 
 - `ai` + `low`: delegate the complete body illustration to `ian-xiaohei-illustrations`. Use Ian's pure-white, minimalist black hand-drawn visual DNA; 小黑 must perform the core conceptual action. Use no text or at most 3-5 short Chinese labels, and run Ian's QA checklist. Ian invokes `create-image` as its image backend.
-- `html` + `high`: versions, numbers, commands, configuration, code paths, long labels, tables, timelines, and checklists. Render all facts deterministically.
-- `hybrid` + `medium/high`: mechanism, architecture, or attack path that needs visual material plus exact labels. Keep the current deterministic HTML/hybrid route; do not delegate locked facts to Ian or any free-form image prompt.
+- `mermaid` + `medium/high`: ordered flows, relationships, comparisons, protocol layers, and timelines. This is the preferred backend for structural/relational content. The mermaid backend auto-lays-out the graph and captures it full-page at WeChat width, so there is no fixed 16:9 canvas and no large blank band. Every visible label comes straight from the spec, so exact facts stay verbatim (deterministic, not AI-guessed) — mermaid is fact-safe even at `high` risk.
+- `html` + `high`: genuine numeric series (5-10 comparable values on a bar chart) and dense tables where a chart fills the canvas. Render all facts deterministically.
+- `hybrid` + `medium/high`: mechanism, architecture, or attack path that needs an AI visual base plus exact labels. Do not delegate locked facts to Ian or any free-form image prompt.
+
+Prefer `mermaid` over the fixed 16:9 Swiss layouts for flows, comparisons, timelines, and relationship diagrams: the Swiss layouts assume slide-density content and leave large blank areas when the spec is sparse. Keep `html` for numeric bar charts (which fill their canvas) and reserve `hybrid` for slots that genuinely need an AI base.
 
 For low-risk AI body slots, `tom-wechat-publisher` owns article selection and fact-risk classification, while `ian-xiaohei-illustrations` owns the shot metaphor, 小黑 action, prompt construction, `create-image` invocation, and Ian QA. The cover remains on the mandatory Chinese-painting workflow. The image model must not infer or rewrite exact data.
+
+### Mermaid backend
+
+Structural/relational body images are rendered by `html_render.py` through the bundled mermaid renderer:
+
+- `image_spec.py` routes `flow`→`pipeline`, `relations`→`hub-and-spoke`, `timeline`→`timeline`, `compare`→`before-after`, and `checklist`→`checklist` to `render_mode: "mermaid"`, `illustration_backend: "mermaid-render"`. Genuine numeric series (≥5 comparable values) stay on `html` + `data-first`; scenes/impacts stay on `ai` (Ian).
+- `html_render.build_mermaid_source(spec)` maps the `structure` to a mermaid flowchart; `render_mermaid_png(spec, png)` renders it to SVG via the local `mermaid` package, wraps it in a WeChat-width HTML shell with a titled header, and screenshots it full-page with Playwright (auto height, no blank band).
+- The renderer needs the `mermaid` npm package installed once at the skill root: `cd ~/.comate/skills/tom-wechat-publisher && npm install`. Playwright's Chromium (already required for HTML rendering) does the rasterization; no extra browser download.
+- `rendered_by` must be `mermaid-render`. `validate_body_images.py` rejects a `mermaid` slot whose backend or `rendered_by` is not `mermaid-render`, and still requires `locked_facts` for any `high`-risk deterministic slot.
 
 ### Deterministic Swiss HTML layouts
 
@@ -337,9 +355,9 @@ Each body image specification must include:
 
 ```json
 {
-  "render_mode": "ai | html | hybrid",
+  "render_mode": "ai | html | hybrid | mermaid",
   "fact_risk": "low | medium | high",
-  "illustration_backend": "ian-xiaohei-illustrations | html-render | create-image",
+  "illustration_backend": "ian-xiaohei-illustrations | mermaid-render | html-render | create-image",
   "rendered_by": "actual backend recorded after generation",
   "overlay_applied": false,
   "structure": "pipeline | layer-stack | hub-and-spoke | before-after | data-first | text-scene | checklist",
@@ -362,8 +380,9 @@ Body illustration planning is a required execution stage for technical articles,
 4. Render or generate the selected body images and insert their local Markdown references.
 5. Run `validate_body_images.py` and reject missing specs, missing local files, stale filename mappings, misplaced images, a non-Ian first body image, or fewer than three body images.
 6. For `ai + low`, require `illustration_backend: ian-xiaohei-illustrations` and a matching `rendered_by` value before preview.
-7. For `hybrid`, require `overlay_applied: true` before preview; a bare AI base is not a finished hybrid image.
-8. Run OCR and visual QA for locked labels, then render the WeChat preview.
+7. For `mermaid`, require `illustration_backend: mermaid-render` and `rendered_by: mermaid-render` before preview.
+8. For `hybrid`, require `overlay_applied: true` before preview; a bare AI base is not a finished hybrid image.
+9. Run OCR and visual QA for locked labels, then render the WeChat preview.
 
 The preview command should include `--require-body-images` for technical articles. A successful cover-only preview must be reported as incomplete, never as a fully prepared illustrated article.
 
@@ -371,10 +390,11 @@ The preview command should include `--require-body-images` for technical article
 
 For a normal 3-4 image technical article:
 
-- include at least one `ai` or visually substantial `hybrid` image;
-- include at least one `html` image for exact facts;
+- include at least one `ai` or visually substantial `hybrid` image (the first body slot is the Ian scene);
+- include at least one deterministic diagram (`mermaid` or `html`) that carries exact facts;
 - use at least two different visual structures;
-- reject a set where every image is a flow card, every image is HTML, or every image delegates exact facts to AI;
+- reject a set where every image is the same flow card, every image is HTML, or every image delegates exact facts to AI;
+- reject any image with a large blank band; reroute sparse flows/comparisons/timelines to `mermaid` rather than the fixed 16:9 Swiss layouts;
 - prefer the sequence `scene -> mechanism -> facts/conditions -> action/checklist`.
 
 ### Hybrid composition

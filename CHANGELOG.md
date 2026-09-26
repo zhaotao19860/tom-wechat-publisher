@@ -2,6 +2,21 @@
 
 本文件记录 `tom-wechat-publisher` 的重要能力变更。
 
+## 2026-09-25
+
+### 改进
+
+- 封面画风由随机抽取改为**按顺序轮换**：用户未指定画风时，取七种国画风格里紧接上一篇所用风格的下一种，用到最后一种后回到第一种，循环推进，连续文章不重复直到走完整轮。新增 `scripts/next_cover_style.py` 扫描历史根目录里各文章 frontmatter 的 `cover_style`，按日期与 mtime 找出最近使用的风格并打印下一种；`SKILL.md` 的封面步骤 1、2 同步改写，风格列表顺序即轮换顺序，并与脚本 `DEFAULT_STYLES` 保持一致。日期解析只认 `20YY-MM(DD)` 前缀，避免 CVE 号、AS 号等非日期目录名污染排序。
+
+## 2026-09-23
+
+### 新增
+
+- 正文配图新增 `mermaid` 后端。结构类与关系类图（流程、关系、时间线、对照、清单）改由 mermaid 自动布局，并用 Playwright 全页截图（自适应高度）出图，去掉固定 16:9 画布带来的大面积留白。所有标签直接来自 spec，事实逐字保真。
+- 配图后端改为“按内容选最合适的”：`image_spec.py` 把结构/关系/流程/对照/时间线/清单路由到 `mermaid`；真正的数值序列（≥5 个可比较数值）保留 `html` 条形图；场景与影响图仍走 `ai`（小黑）。
+- `html_render.py` 新增 `build_mermaid_source`、`render_mermaid_png`、`render_png_fullpage`；`render_specs` 按后端分流（mermaid / html，跳过 AI 槽位）。`validate_body_images.py` 支持 `render_mode: mermaid` 并校验 `mermaid-render` 后端。
+- mermaid 渲染依赖 `mermaid` npm 包（记录在 `package.json`），复用 Playwright 已有的 Chromium，无需额外浏览器下载。
+
 ## 2026-09-16
 
 ### 改进

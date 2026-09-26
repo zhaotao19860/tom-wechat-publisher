@@ -86,7 +86,7 @@ def main() -> int:
 
     invalid_policy = [
         str(item.get("filename")) for item in body
-        if item.get("render_mode") not in {"ai", "html", "hybrid"}
+        if item.get("render_mode") not in {"ai", "html", "hybrid", "mermaid"}
         or item.get("fact_risk") not in {"low", "medium", "high"}
     ]
     if invalid_policy:
@@ -109,7 +109,7 @@ def main() -> int:
         if hits:
             generic_labels.append(f"{filename}.labels={hits}")
         if (
-            item.get("render_mode") in {"html", "hybrid"}
+            item.get("render_mode") in {"html", "hybrid", "mermaid"}
             and item.get("fact_risk") == "high"
             and not item.get("locked_facts")
         ):
@@ -145,6 +145,20 @@ def main() -> int:
         raise SystemExit(
             "body image preflight failed: hybrid images lack deterministic overlays: "
             + ", ".join(incomplete_hybrid)
+        )
+
+    misrouted_mermaid = [
+        str(item.get("filename")) for item in body
+        if item.get("render_mode") == "mermaid"
+        and (
+            item.get("illustration_backend") != "mermaid-render"
+            or not str(item.get("rendered_by") or "").startswith("mermaid-render")
+        )
+    ]
+    if misrouted_mermaid:
+        raise SystemExit(
+            "body image preflight failed: mermaid images were not rendered by the mermaid backend: "
+            + ", ".join(misrouted_mermaid)
         )
 
     print(f"body image preflight passed: {len(body)} specs, {len(local_refs)} mapped references")

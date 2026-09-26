@@ -1782,6 +1782,217 @@ def canvas_for_kind(kind: str) -> tuple[int, int]:
     return CANVAS.get(kind, CANVAS["summary"])
 
 
+# === MERMAID (structural / relational diagrams) ==========================
+# Flow, hub-and-spoke, before-after, layer-stack and timeline diagrams are
+# routed here instead of the fixed 16:9 Swiss layouts. Mermaid auto-lays-out
+# the graph and we capture it full-page at WeChat width, so there is no fixed
+# canvas and therefore no large blank band. All visible text comes straight
+# from the spec, so exact facts stay verbatim (deterministic, not AI-guessed).
+
+_SKILL_ROOT = Path(__file__).resolve().parent.parent
+MERMAID_JS = _SKILL_ROOT / "node_modules" / "mermaid" / "dist" / "mermaid.min.js"
+MERMAID_WIDTH = 1100  # WeChat-friendly body width; height is captured full-page.
+_CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫"
+
+
+def mermaid_available() -> bool:
+    return MERMAID_JS.is_file()
+
+
+def _mm(text: str) -> str:
+    """Sanitize text for use inside a quoted mermaid label."""
+    s = str(text or "").strip().replace("\n", " ")
+    # Double quotes and backslashes break mermaid label parsing; swap for
+    # visually-close full-width glyphs so exact meaning survives.
+    s = s.replace('"', "＂").replace("\\", "／")
+    return re.sub(r"\s+", " ", s)
+
+
+def _mm_label(label: str, sub: str = "") -> str:
+    """A quoted mermaid label with an optional smaller second line."""
+    head = _mm(label)
+    tail = _mm(sub)
+    if tail:
+        return f'"{head}<br/><small>{tail}</small>"'
+    return f'"{head}"'
+
+
+def _step_prefix(step: object, index: int) -> str:
+    digits = re.sub(r"\D", "", str(step or ""))
+    try:
+        n = int(digits) if digits else index + 1
+    except ValueError:
+        n = index + 1
+    return f"{_CIRCLED[n - 1]} " if 1 <= n <= len(_CIRCLED) else f"{n}. "
+
+
+def _mm_classdefs(spec: dict) -> list[str]:
+    p = _palette(spec)
+    return [
+        f"classDef sideA fill:{p['soft']},stroke:{p['primary']},color:{p['ink']},rx:10,ry:10;",
+        f"classDef sideB fill:#f8fafc,stroke:#64748b,color:#0f172a,rx:10,ry:10;",
+        f"classDef last fill:{p['primary']},stroke:{p['primary']},color:#ffffff,rx:10,ry:10;",
+        f"classDef hub fill:{p['ink']},stroke:{p['ink']},color:#ffffff;",
+    ]
+
+
+def _mermaid_pipeline(spec: dict, direction: str = "TB") -> str:
+    items = [i for i in (spec.get("items") or []) if isinstance(i, dict)]
+    lines = [f"flowchart {direction}"]
+    ids: list[str] = []
+    for i, item in enumerate(items):
+        nid = f"n{i}"
+        ids.append(nid)
+        label = _step_prefix(item.get("step"), i) + str(item.get("label") or item.get("text") or "")
+        lines.append(f"  {nid}[{_mm_label(label, item.get('sub', ''))}]")
+    for a, b in zip(ids, ids[1:]):
+        lines.append(f"  {a} --> {b}")
+    if ids:
+        lines.append(f"  class {ids[-1]} last;")
+    lines += _mm_classdefs(spec)
+    return "\n".join(lines)
+
+
+def _mermaid_hub(spec: dict) -> str:
+    items = [i for i in (spec.get("items") or []) if isinstance(i, dict)]
+    center = _mm(spec.get("title_zh") or spec.get("subtitle") or "核心")
+    lines = ["flowchart LR", f'  H(("{center}"))', "  class H hub;"]
+    for i, item in enumerate(items):
+        nid = f"s{i}"
+        lines.append(f"  {nid}[{_mm_label(item.get('label', ''), item.get('sub', ''))}]")
+        lines.append(f"  H --- {nid}")
+    lines += _mm_classdefs(spec)
+    return "\n".join(lines)
+
+
+def _mermaid_before_after(spec: dict) -> str:
+    items = [i for i in (spec.get("items") or []) if isinstance(i, dict)][:2]
+    if len(items) != 2:
+        return _mermaid_pipeline(spec, "TB")
+    a, b = items
+    middle = _mm(spec.get("subtitle") or spec.get("title_zh") or "同一对象")
+    lines = [
+        "flowchart LR",
+        f"  L[{_mm_label(a.get('label', ''), a.get('sub', ''))}]",
+        f'  M(["{middle}"])',
+        f"  R[{_mm_label(b.get('label', ''), b.get('sub', ''))}]",
+        "  L --- M --- R",
+        "  class L sideA;",
+        "  class M hub;",
+        "  class R sideB;",
+    ]
+    lines += _mm_classdefs(spec)
+    return "\n".join(lines)
+
+
+def build_mermaid_source(spec: dict) -> str:
+    """Map a body-image spec to mermaid diagram source by its structure."""
+    structure = str(spec.get("structure") or "").strip().lower()
+    kind = str(spec.get("kind") or "").strip().lower()
+    if structure == "hub-and-spoke" or kind == "relations":
+        return _mermaid_hub(spec)
+    if structure == "before-after" or kind == "compare":
+        return _mermaid_before_after(spec)
+    if structure == "timeline" or kind == "timeline":
+        return _mermaid_pipeline(spec, "LR")
+    return _mermaid_pipeline(spec, "TB")
+
+
+def _mermaid_html(source: str, spec: dict) -> str:
+    p = _palette(spec)
+    kicker = _esc(spec.get("source_section") or spec.get("kind") or "ARTICLE VISUAL")
+    title = _esc(spec.get("title_zh") or "")
+    subtitle = _esc(spec.get("subtitle") or "")
+    header = ""
+    if title:
+        sub_html = f'<p class="mm-sub">{subtitle}</p>' if subtitle else ""
+        header = (
+            f'<header class="mm-head"><span class="mm-kicker">{kicker}</span>'
+            f"<h1>{title}</h1>{sub_html}</header>"
+        )
+    return f"""<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8"><style>
+  *{{margin:0;padding:0;box-sizing:border-box}}
+  body{{background:#ffffff;font-family:{FONT_STACK}}}
+  .wrap{{width:{MERMAID_WIDTH}px;padding:52px 60px 60px;background:#ffffff}}
+  .mm-head{{margin-bottom:36px;border-left:6px solid {p['primary']};padding-left:22px}}
+  .mm-kicker{{display:inline-block;font:700 15px/1.4 {FONT_STACK_MONO};letter-spacing:2px;
+    text-transform:uppercase;color:{p['primary']};margin-bottom:12px}}
+  .mm-head h1{{font-size:42px;line-height:1.25;font-weight:800;color:{p['ink']};overflow-wrap:anywhere}}
+  .mm-head .mm-sub{{margin-top:12px;font-size:22px;line-height:1.5;color:#475569}}
+  .mermaid{{display:flex;justify-content:center}}
+  .mermaid svg{{max-width:100%;height:auto}}
+  .mermaid small{{font-size:.8em;color:inherit;opacity:.72;font-weight:400}}
+</style></head><body><div class="wrap">{header}
+<pre class="mermaid">
+{source}
+</pre></div>
+<script src="{MERMAID_JS.resolve().as_uri()}"></script>
+<script>
+  mermaid.initialize({{startOnLoad:false, theme:'base', securityLevel:'loose',
+    flowchart:{{htmlLabels:true, curve:'basis', nodeSpacing:46, rankSpacing:52, padding:14}},
+    themeVariables:{{fontFamily:{FONT_STACK!r}, fontSize:'20px',
+      primaryColor:{p['soft']!r}, primaryBorderColor:{p['primary']!r},
+      primaryTextColor:{p['ink']!r}, lineColor:'#94a3b8', edgeLabelBackground:'#ffffff'}}}});
+  mermaid.run().then(function(){{document.body.setAttribute('data-mm','done');}});
+</script>
+</body></html>"""
+
+
+def render_png_fullpage(html_path: Path, png_path: Path, width: int, wait_ms: int = 1800) -> bool:
+    """Screenshot an HTML file full-page (auto height) to PNG via Playwright."""
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+    png_path.unlink(missing_ok=True)
+    url = f"file://{html_path.resolve()}"
+    cmd = [
+        "npx", "playwright", "screenshot", url, str(png_path),
+        "--viewport-size", f"{width},200", "--full-page",
+        "--wait-for-timeout", str(wait_ms),
+    ]
+    for attempt in range(2):
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            print(f"[html_render] mermaid screenshot attempt {attempt+1}/2 failed: {exc}", file=sys.stderr)
+            if attempt == 1:
+                return False
+            continue
+        if proc.returncode != 0:
+            print(
+                f"[html_render] mermaid screenshot attempt {attempt+1}/2 failed for {png_path.name}: "
+                f"{proc.stderr.strip()[:300]}",
+                file=sys.stderr,
+            )
+            if attempt == 1:
+                return False
+            continue
+        if not png_path.exists() or png_path.stat().st_size < 5000:
+            if attempt == 1:
+                return False
+            continue
+        return True
+    return False
+
+
+def render_mermaid_png(spec: dict, png_path: Path, html_dir: Path | None = None) -> bool:
+    """Render one structural spec to PNG through mermaid + Playwright full-page."""
+    if not mermaid_available():
+        raise RuntimeError(
+            "mermaid renderer unavailable: mermaid.min.js not found at "
+            f"{MERMAID_JS}. Install it once with: cd {_SKILL_ROOT} && npm install mermaid"
+        )
+    source = build_mermaid_source(spec)
+    html = _mermaid_html(source, spec)
+    if html_dir is None:
+        html_dir = png_path.parent / "html"
+    html_dir.mkdir(parents=True, exist_ok=True)
+    stem = png_path.stem
+    (html_dir / f"{stem}.mmd").write_text(source, encoding="utf-8")
+    html_path = html_dir / f"{stem}.mermaid.html"
+    html_path.write_text(html, encoding="utf-8")
+    return render_png_fullpage(html_path, png_path, MERMAID_WIDTH)
+
+
 def render_png(html_path: Path, png_path: Path, width: int, height: int) -> bool:
     """Render an HTML file to a PNG via Playwright. Returns True on success."""
     png_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1839,12 +2050,37 @@ def render_specs(specs: list[dict], target_dir: Path, images_dir: Path, *, allow
     for idx, spec in enumerate(specs):
         kind = _kind(spec)
         filename = f"{spec.get('filename', f'image_{idx}')}.png"
+        mode = str(spec.get("render_mode") or "").strip().lower()
+        backend = str(spec.get("illustration_backend") or "").strip().lower()
         if kind == "cover" and not allow_cover_fallback:
-            raise RuntimeError(
-                f"Refusing to HTML-render cover slot {idx + 1} ({filename}). "
-                "Covers must be generated with /create-image first. "
-                "Use --allow-cover-fallback only for an audited AI-failure fallback."
-            )
+            # Covers are AI-generated by /create-image, not HTML-rendered. When a
+            # full specs file (cover + body) is passed to the deterministic
+            # renderer, skip the cover instead of failing so the body diagrams
+            # still render. --allow-cover-fallback is the only path that renders
+            # a cover here, and only for an audited AI-failure fallback.
+            print(f"  - {filename}: skipped (cover is generated by /create-image)", file=sys.stderr)
+            continue
+
+        # AI slots (Ian scene / create-image) are produced by their own backends;
+        # the deterministic renderer only handles mermaid + HTML and skips them.
+        if kind != "cover" and (mode == "ai" or backend in {"ian-xiaohei-illustrations", "create-image"}):
+            print(f"  - {filename}: skipped (AI backend '{backend or mode}'; generate separately)", file=sys.stderr)
+            continue
+
+        # Mermaid path: structural / relational diagrams, captured full-page so
+        # there is no fixed 16:9 canvas and no large blank band.
+        if kind != "cover" and (mode == "mermaid" or backend == "mermaid-render"):
+            final_path = images_dir / filename
+            final_path.unlink(missing_ok=True)
+            ok = render_mermaid_png(spec, final_path, html_dir=html_dir)
+            if not ok:
+                raise RuntimeError(
+                    f"Mermaid render failed for slot {idx + 1} ({filename}). "
+                    f"Inspect {html_dir / (spec.get('filename', f'image_{idx}') + '.mermaid.html')}."
+                )
+            produced[filename] = final_path
+            print(f"  - {filename}: mermaid-render (width {MERMAID_WIDTH}, full-page)", file=sys.stderr)
+            continue
 
         html = render_html_for_spec(spec)
         html_path = html_dir / f"{spec.get('filename', f'image_{idx}')}.html"

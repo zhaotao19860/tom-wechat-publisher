@@ -1,0 +1,28 @@
+{
+  "name": "tom-wechat-publisher",
+  "version": "1.0.0",
+  "description": "一个面向微信公众号内容全流程的 Skill：它可以从 URL、网页公告、本地素材、会议纪要、对话或主题摘要生成文章，也可以处理已有 Markdown，完成配图、校验、主题预览和草稿创建。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaotao19860/tom-wechat-publisher.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/zhaotao19860/tom-wechat-publisher/issues"
+  },
+  "homepage": "https://github.com/zhaotao19860/tom-wechat-publisher#readme",
+  "dependencies": {
+    "mermaid": "^11.17.2"
+  }
+}
