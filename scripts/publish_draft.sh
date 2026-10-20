@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  publish_draft.sh article.md [--title "Title"] [--cover cover.jpg] [--author "Name"] [--theme theme] [--highlight theme] [--preview-themes] [--preview-dir DIR] [--no-open-preview] [--no-footnote] [--render-only] [--dry-run] [--keep-temp] [--theme-selection-confirmed] [--require-body-images] [--upload]
+  publish_draft.sh article.md [--title "Title"] [--cover cover.jpg] [--author "Name"] [--theme theme] [--highlight theme] [--preview-themes] [--preview-dir DIR] [--no-open-preview] [--footnote] [--no-footnote] [--render-only] [--dry-run] [--keep-temp] [--theme-selection-confirmed] [--require-body-images] [--upload]
   publish_draft.sh --generate-from SOURCE --topic "..." [--out-dir DIR] [--history-root DIR] [--topic-history-reviewed] [--allow-topic-repeat] [--search-query "..."] [--image-visual-theme THEME] [--image-theme-selection-confirmed] [--no-search] [--no-images] [--markdown] [--humanize]
   publish_draft.sh --humanize article.md [--in-place] [--score] [--json]
 
@@ -127,7 +127,11 @@ theme_selection_confirmed=0
 require_body_images=0
 upload=0
 persistent_preview_dir=""
-footnote=1
+# Wenyan's link-footnote endnote list is disabled by default: it duplicates the
+# article's own 参考资料 section and renders "undefined:" for URL-as-anchor links.
+# Opt back in per-run with --footnote when an article relies on inline anchor-text
+# links and has no manual reference section.
+footnote=0
 
 # Generate-mode state
 generate_from=""
@@ -189,6 +193,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-footnote)
       footnote=0
+      shift
+      ;;
+    --footnote)
+      footnote=1
       shift
       ;;
     --preview-dir)

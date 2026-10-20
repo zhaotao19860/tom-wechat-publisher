@@ -18,6 +18,7 @@
 - [快速开始](#快速开始)
 - [完整用法](#完整用法)
 - [图片工作流](#图片工作流)
+- [讲解视频](#讲解视频)
 - [默认作者](#默认作者)
 - [故障排查](#故障排查)
 - [开发与验证](#开发与验证)
@@ -99,11 +100,15 @@ tom-wechat-publisher/
 ├── README.md                        # 本文档：安装、原理和使用说明
 ├── agents/
 │   └── openai.yaml                  # Skill 在 Comate 中的显示信息和默认提示
+├── references/
+│   └── video-explainer.md           # 讲解视频流程：Remotion 画面、edge-tts 配音、混音与入文
 ├── assets/
 │   ├── dns-sakura.css               # 公众号主题样式
 │   ├── dns-daily.css
 │   ├── dns-graphite.css
+│   ├── remotion-explainer-template/ # 讲解视频 Remotion 模板（DNS 递归解析示例）
 │   └── ...                          # 其他内置主题
+├── tests/                           # 单元测试（含视频时间轴与混音）
 └── scripts/
     ├── publish_draft.sh             # 主入口：准备、预览、上传和错误分层
     ├── prepare_wechat_md.py         # frontmatter、图片路径和图片格式准备
@@ -114,7 +119,10 @@ tom-wechat-publisher/
     ├── html_render.py               # 确定性正文信息图渲染器
     ├── compare_body_images.py       # HTML/AI 正文图候选比较
     ├── ocr_validate.py              # 图片文字 OCR 校验
-    └── ocr_check.swift              # macOS Vision OCR 执行器
+    ├── ocr_check.swift              # macOS Vision OCR 执行器
+    ├── video_narrate.py             # edge-tts 逐步配音并测量时长
+    ├── video_schedule.py            # 按旁白时长生成视频时间轴
+    └── video_render.py              # Remotion 渲染、混音、输出 MP4 和 GIF
 ```
 
 ### 核心组件
@@ -247,6 +255,8 @@ wenyan --version
 
 如果只使用已经生成好的 Markdown 和图片，也可以跳过文章生成相关的可选依赖。
 
+制作讲解视频还需要 `ffmpeg` / `ffprobe`（`brew install ffmpeg`）、Node.js 20.19 或更高版本（Remotion 渲染，首次渲染会下载 Remotion 自带的 Chrome Headless Shell），以及装在虚拟环境里、固定版本的 `edge-tts==7.3.1`。Remotion 对 3 人以内的团队免费，更大的公司需要按其许可证购买授权。
+
 文章生成并自动配图时还需要 Comate 的 `create-image` Skill。默认脚本会从当前用户的 `~/.comate/skills/.system/`、`~/.agents/skills/.system/` 或 `~/.codex/skills/.system/` 中自动查找；也可以显式指定：
 
 ```bash
@@ -356,6 +366,8 @@ publish_draft.sh article.md
   --preview-themes
   --preview-dir DIR
   --no-open-preview
+  --footnote
+  --no-footnote
   --render-only
   --dry-run
   --keep-temp
@@ -488,6 +500,36 @@ python3 ./scripts/ocr_validate.py \
 
 不要让 AI 图片生成器承担版本号、命令参数、CVE 编号或长段文字的准确性。
 
+## 讲解视频
+
+文章需要配一段带旁白的讲解视频时（协议交互、解析链路、缓存命中、故障切换这类“谁先问谁、回了什么”的内容），使用 Remotion 画面加 edge-tts 配音的流程，详细规则见 `references/video-explainer.md`。旧的 Anatomy 等轴测录制流程已停用：画面偏暗、看不到报文内容、节点只能横排。
+
+画面约定：白底高对比；客户端在左，干活的组件（如 BIND9 及其 zonedb / cachedb / adb）在中间，被访问的服务器按访问顺序竖排在右；每一步一对带标签的箭头，标出查询和应答的真实字段；已完成的交互变灰保留，缓存写入和命中直接显示在画面上；底部字幕条。
+
+```bash
+# 1. 从模板起一个 Remotion 工程，把实测数据写进 src/steps.ts
+cp -R assets/remotion-explainer-template ~/work/my-video && cd ~/work/my-video && npm i
+
+# 2. 口语旁白，一步一句；生成云希配音并按旁白长度生成时间轴
+python3 -m venv .venv && .venv/bin/pip install edge-tts==7.3.1
+export TOM_WECHAT_EDGE_TTS=$PWD/.venv/bin/edge-tts
+python3 ~/.comate/skills/tom-wechat-publisher/scripts/video_narrate.py audio/lines.txt \
+  --out-dir audio --durations narration.json
+python3 ~/.comate/skills/tom-wechat-publisher/scripts/video_schedule.py narration.json \
+  --out src/schedule.json --scenes 9,9 --click
+
+# 3. 渲染、混音、出 MP4 和正文用的无声 GIF
+python3 ~/.comate/skills/tom-wechat-publisher/scripts/video_render.py . \
+  --composition DnsTrace --schedule src/schedule.json --audio-dir audio \
+  --out out/video.mp4 --gif out/video.gif --gif-speed 3 --gif-fps 5
+```
+
+- `video_narrate.py`：每行旁白生成一个去掉首尾静音的 `t<i>.wav`，并写出各段时长。默认音色 `zh-CN-YunxiNeural`，不使用 macOS `say`。edge-tts 会把文本发到微软在线服务，只朗读准备公开的内容。
+- `video_schedule.py`：每步时长取 `max(4.0, 旁白 + 0.15 + 0.8)` 秒，每个场景前留 1 秒、场景之间留 1.5 秒、结尾留 3 秒，写出 `schedule.json`。Remotion 工程直接 import 这个文件，画面和声音用同一个时钟。
+- `video_render.py`：调用 `npx remotion render --muted` 渲染无声画面，把旁白放在每步 `arrive + 0.15` 秒处，响度归一到 −16 LUFS，编码为 1280 宽 H.264 + AAC。GIF 超过 300 帧会被微信拒收，脚本会自动提高 GIF 倍速压到 300 帧以内。
+
+放进文章时，正文放无声 GIF；MP4 不能用接口上传后嵌入图文正文，需要在公众号网页编辑器里用「本地上传」插入。要求视频放在开头时，在首段写明并留出视频位，小黑开场图仍是第一张正文图。配音是否自然需要人工试听确认。
+
 ## 默认作者
 
 默认作者为 `赵涛`。优先级如下：
@@ -581,6 +623,12 @@ bash ./scripts/publish_draft.sh \
 3. 同时传入 `--author`，结果应使用命令行值。
 
 正式上传测试必须使用测试账号或明确授权的公众号账号，不应在 CI 中保存生产 App Secret。
+
+运行单元测试（包括视频时间轴、混音滤镜和音效生成）：
+
+```bash
+python3 -m unittest discover -s tests
+```
 
 ## 已知限制
 

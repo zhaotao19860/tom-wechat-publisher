@@ -2,6 +2,33 @@
 
 本文件记录 `tom-wechat-publisher` 的重要能力变更。
 
+## 2026-10-20
+
+### 新增
+
+- 讲解视频改用 Remotion 制作，替换原来的 Anatomy 等轴测录制流程。Anatomy 画面偏暗、看不到报文内容、节点只能横排，不适合讲协议交互。新画面白底高对比，被访问的服务器按顺序竖排，每一步一对带标签的查询、应答箭头，标出真实字段，缓存写入和命中直接显示在画面上，底部有字幕条。
+- 新增 `assets/remotion-explainer-template/`：一个可直接复用的 Remotion 工程，示例是同一台 BIND9 先冷缓存解析 www.baidu.com、再热缓存解析 www.qq.com，共 18 步。节点、报文、字幕和缓存记录都放在 `src/steps.ts` 一个数据文件里。
+- 新增 `scripts/video_schedule.py`：把各段旁白时长换算成 `schedule.json`。每步时长取 `max(4.0, 旁白 + 0.15 + 0.8)` 秒，支持多场景，场景前后留停顿，可选给每次查询加一声轻点击音。Remotion 工程直接 import 这个文件，让每一步跟旁白对齐。
+
+### 改进
+
+- `scripts/video_render.py` 改为调用 `npx remotion render --muted` 渲染无声画面，再按时间轴混入旁白和音效，响度归一到 −16 LUFS 后输出 1280 宽 H.264 + AAC。去掉对 Anatomy `drive.mjs` 逐帧截图的依赖。
+- GIF 新增 `--gif-fps`。动图超过 300 帧会被微信拒收，脚本会自动提高 GIF 倍速，把帧数压到 300 以内。
+- `video_narrate.py` 的用法改为配合 `--durations` 直接写出 `narration.json`，再交给 `video_schedule.py`。
+- `SKILL.md` 和 `references/video-explainer.md` 改写为 Remotion 流程，补充版式约定、旁白读法（如 `点 com`、IP 逐位念、长随机标签只放画面不念）、渲染前的静帧检查，以及“视频放在文章开头”时的留位写法。
+- 单元测试把原来针对 Anatomy 逐帧截图的用例换成时间轴用例，覆盖步长下限、场景停顿、音效时刻和场景步数不匹配时报错。
+
+## 2026-10-19
+
+### 新增
+
+- 新增讲解视频流程第一版：Anatomy 画面加 edge-tts 神经语音配音（默认 `zh-CN-YunxiNeural`），不使用机械感较重的 macOS `say`。新增 `scripts/video_narrate.py`（逐句合成、去首尾静音、测量时长）和 `scripts/video_render.py`（录制、混音、输出 MP4 和无声 GIF）。
+- 明确接口上传的视频素材不能嵌入图文正文，MP4 需要在网页编辑器里用「本地上传」插入。
+
+### 改进
+
+- Wenyan 的链接脚注尾注默认关闭，新增 `--footnote` 按需开启。文章自带 `## 参考资料` 时，尾注会把每个链接重复一遍，以网址作锚文本的链接还会渲染出 `undefined:`。
+
 ## 2026-09-25
 
 ### 改进

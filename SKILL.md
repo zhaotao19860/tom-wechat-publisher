@@ -1,6 +1,6 @@
 ---
 name: tom-wechat-publisher
-description: Generate, polish, illustrate, prepare, validate, preview, and explicitly upload WeChat Official Account draft articles. Trigger whenever the user asks to turn a URL, web announcement, local file, meeting notes, conversation, summary, or topic brief into a WeChat article, or mentions 公众号, 微信公众号, 草稿箱, Markdown/md 公众号排版, 草稿上传, 封面处理, 正文图片兼容, 公众号预览, or WeChat media errors such as 40113. It supports source-grounded article generation, direct conversation/context-to-article workflows, local Markdown preparation, AI Chinese-painting covers, deterministic factual infographics, and draft-only upload. Do not trigger for standalone illustration generation, GitHub Pages publishing, or mass sending. This skill may create drafts only after explicit user authorization; it must never publish or mass-send.
+description: Generate, polish, illustrate, prepare, validate, preview, and explicitly upload WeChat Official Account draft articles. Trigger whenever the user asks to turn a URL, web announcement, local file, meeting notes, conversation, summary, or topic brief into a WeChat article, or mentions 公众号, 微信公众号, 草稿箱, Markdown/md 公众号排版, 草稿上传, 封面处理, 正文图片兼容, 公众号预览, or WeChat media errors such as 40113, or asks for a 视频讲解/讲解视频/配音动画 to accompany an article. It supports source-grounded article generation, direct conversation/context-to-article workflows, local Markdown preparation, AI Chinese-painting covers, deterministic factual infographics, and draft-only upload. Do not trigger for standalone illustration generation, GitHub Pages publishing, or mass sending. This skill may create drafts only after explicit user authorization; it must never publish or mass-send.
 ---
 
 # WeChat Draft Publisher
@@ -27,6 +27,7 @@ This skill can:
 8. Render one or more local HTML previews with bundled themes.
 9. Create a WeChat draft through an explicitly configured upload command.
 10. Diagnose failures by stage: source ingestion, fact extraction, prose revision, image generation, preflight, preparation, rendering, media upload, or draft creation.
+11. Produce a narrated explainer video for the article: a Remotion animation, edge-tts narration timed per step, and an MP4 plus a silent body GIF (see `references/video-explainer.md`).
 
 This skill must not:
 
@@ -37,6 +38,7 @@ This skill must not:
 - Claim upload success from an exit code alone when the adapter output reports failure.
 - Generate article illustrations itself when a dedicated illustration skill is a better fit.
 - Handle GitHub Pages publishing; use `tom-pages-publisher` for that.
+- Upload an article video through `material/add_material` and call it embedded. API-uploaded videos cannot be inserted into a 图文 body; the user must use 「本地上传」 in the web editor.
 
 ## Safety Contract
 
@@ -103,6 +105,12 @@ bash ~/.comate/skills/tom-wechat-publisher/scripts/publish_draft.sh \
 The wrapper uses the installed Wenyan CLI for preview and draft creation. `wenyan render` and `wenyan publish` receive the same staged Markdown, custom theme CSS, and highlight theme. Wenyan handles UTF-8 input, local body-image upload, cover material upload, URL replacement, and WeChat `draft/add`.
 
 The wrapper must return a non-zero exit code when Wenyan fails. Output containing a clear error response is treated as failure even when the exit code is zero.
+
+### Reference links and footnotes
+
+Wenyan's link-footnote endnote list (`--footnote`) is disabled by default in the wrapper. For this skill's workflow it hurt more than it helped: articles carry an explicit `## 参考资料` section, so the auto endnote duplicated every link, and links written as `[https://url](https://url)` (anchor text equal to the URL) rendered as `[n]undefined: https://url` plus a second bare entry. WeChat also strips clickable links from the body, so a plain-text `参考资料` section is the reliable way to expose URLs.
+
+Keep references as a manual `## 参考资料` section with a short human label followed by the bare URL, for example `- octoDNS 仓库 https://github.com/octodns/octodns`. Do not wrap a URL in `[url](url)`. Pass `--footnote` only for an article that deliberately uses inline anchor-text links and has no manual reference section.
 
 ## Preflight Rules
 
@@ -215,6 +223,31 @@ bash ~/.comate/skills/tom-wechat-publisher/scripts/publish_draft.sh \
 ```
 
 Do not invent facts while polishing. Preserve source facts, causal wording, uncertainty, dates, product names, and quoted claims.
+
+## Optional Video Explainer
+
+When the user asks for a 视频讲解 / 讲解视频 / 动画视频 to go with an article, use this pipeline and read `references/video-explainer.md` first:
+
+1. Collect the real facts and split the story into steps (subtitle, spoken line, packet text on query and reply, what lights or is cached). Keep them in one data module.
+2. Build the picture as a Remotion composition, starting from `assets/remotion-explainer-template/` and loading the `remotion-best-practices` / `remotion-markup` skills. White background, actors as columns, servers stacked vertically, a labelled arrow pair per exchange, cache state on screen, subtitle bar at the bottom. Animate only with `useCurrentFrame()` + `interpolate()` and read step timing from `src/schedule.json`. Check stills at several steps before rendering. Anatomy is no longer used for videos.
+3. Narrate with edge-tts (default `zh-CN-YunxiNeural`, never macOS `say`). Write the lines in spoken Chinese, generate the clips, then turn their lengths into the timeline so each step fits its narration.
+
+   ```bash
+   python3 ~/.comate/skills/tom-wechat-publisher/scripts/video_narrate.py audio/lines.txt --out-dir audio --durations narration.json
+   python3 ~/.comate/skills/tom-wechat-publisher/scripts/video_schedule.py narration.json --out src/schedule.json --scenes 9,9 --click
+   ```
+
+4. Render, mix and encode with `scripts/video_render.py`. It renders the composition silent with Remotion, mixes the narration on the schedule's clock, and writes the MP4 and a silent GIF for the body (keep the GIF at or under 300 frames).
+
+   ```bash
+   python3 ~/.comate/skills/tom-wechat-publisher/scripts/video_render.py /path/to/remotion-project \
+     --composition DnsTrace --schedule src/schedule.json --audio-dir audio \
+     --out video.mp4 --gif images/bodyN-video.gif --gif-speed 3 --gif-fps 5
+   ```
+
+5. Put the GIF in the body, keep every video fact in the article in sync with the final file, and tell the user to insert the MP4 with 「本地上传」 in the editor. When the video should open the article, leave its slot above the first Ian image and say so in the opening paragraph.
+
+edge-tts sends the narration text to Microsoft's online service, so only narrate publishable text. Install it pinned (`edge-tts==7.3.1`) in a venv and point `TOM_WECHAT_EDGE_TTS` at it. You cannot hear the result, so ask the user to listen before calling the voice done.
 
 ## Mandatory AI Chinese-Painting Cover
 
