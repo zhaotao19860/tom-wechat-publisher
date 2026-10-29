@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import os
 import re
 import sys
+import time
 import unicodedata
 import urllib.parse
 from dataclasses import dataclass
@@ -275,8 +277,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def emit_run_marker() -> None:
+    """Mark the start of a workflow run for tom-workflow-optimize. stderr keeps --json stdout clean."""
+    run_id = os.environ.get("WECHAT_RUN_ID") or "{}-{}".format(time.strftime("%Y%m%d%H%M%S"), os.getpid())
+    print("[[wf-run start tom-wechat-publisher {}]]".format(run_id), file=sys.stderr)
+
+
 def main() -> int:
     args = parse_args()
+    emit_run_marker()
     if not args.topic.strip() and not args.source.strip():
         print("ERROR: --topic or --source is required", file=sys.stderr)
         return 2

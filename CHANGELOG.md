@@ -2,6 +2,12 @@
 
 本文件记录 `tom-wechat-publisher` 的重要能力变更。
 
+## 2026-10-29
+
+### 新增
+
+- 入口输出运行标记，供 tom-workflow-optimize 切分每一次工作流运行：`check_topic_history.py` 开头向 stderr 输出 `[[wf-run start tom-wechat-publisher <run_id>]]`，`publish_draft.sh` 草稿创建成功后输出 `[[wf-run end tom-wechat-publisher <run_id> success]]`。`run_id` 由 `publish_draft.sh` 生成并经 `WECHAT_RUN_ID` 传给子脚本，单独调用时自动生成。标记只写 stderr，不影响 `--json` 输出。
+
 ## 2026-10-20
 
 ### 新增

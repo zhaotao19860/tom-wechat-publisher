@@ -54,6 +54,8 @@ mask_app_id() {
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Run id shared with check_topic_history.py's start marker; read by tom-workflow-optimize.
+export WECHAT_RUN_ID="${WECHAT_RUN_ID:-$(date +%Y%m%d%H%M%S)-$$}"
 skill_dir="$(cd "$script_dir/.." && pwd)"
 # Set WECHAT_APP_ID explicitly for draft uploads; public builds must not bind to a personal account.
 
@@ -711,3 +713,4 @@ if ! draft_media_id="$("$PYTHON" "$script_dir/validate_publish_output.py" "$uplo
 fi
 printf 'Draft Media ID: %s\n' "$draft_media_id"
 printf 'Draft created successfully.\n'
+printf '[[wf-run end tom-wechat-publisher %s success]]\n' "$WECHAT_RUN_ID" >&2

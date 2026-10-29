@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -48,6 +49,20 @@ class TopicHistoryTests(unittest.TestCase):
             encoding="utf-8",
         )
         return article
+
+    def test_emits_run_marker_on_stderr_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.write_article(root, "old", "旧标题")
+            env = {**os.environ, "WECHAT_RUN_ID": "test-run-1"}
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--history-root", str(root), "--topic", "全新的话题", "--json"],
+                capture_output=True, text=True, env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("[[wf-run start tom-wechat-publisher test-run-1]]", result.stderr)
+            json.loads(result.stdout)
 
     def test_same_source_is_a_duplicate_even_when_title_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
