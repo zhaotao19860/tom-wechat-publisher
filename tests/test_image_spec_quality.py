@@ -176,6 +176,61 @@ title: '示例'
             )
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
 
+    def _footer_case(self, tail: str, footer_name: str = "footer-guofeng-seal.png",
+                     footer_spec: bool = False) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "images").mkdir()
+            for name in ("scene.png", "facts.png", "actions.png", footer_name):
+                (root / "images" / name).write_bytes(b"png")
+            article = root / "article.md"
+            article.write_text(
+                """# 示例
+开场。
+![小黑场景](images/scene.png)
+
+## 原理
+![事实图](images/facts.png)
+
+## 行动
+![行动图](images/actions.png)
+""" + tail,
+                encoding="utf-8",
+            )
+            specs = [
+                {"filename": "scene", "kind": "summary", "source_section": "", "render_mode": "ai", "fact_risk": "low", "illustration_backend": "ian-xiaohei-illustrations", "rendered_by": "ian-xiaohei-illustrations/create-image", "labels": [], "items": []},
+                {"filename": "facts", "kind": "impact", "source_section": "原理", "render_mode": "html", "fact_risk": "high", "illustration_backend": "html-render", "rendered_by": "html-render", "labels": ["9 个 CVE"], "items": [], "locked_facts": ["9 个 CVE"]},
+                {"filename": "actions", "kind": "checklist", "source_section": "行动", "render_mode": "html", "fact_risk": "high", "illustration_backend": "html-render", "rendered_by": "html-render", "labels": ["升级"], "items": [], "locked_facts": ["升级"]},
+            ]
+            if footer_spec:
+                specs.append({"filename": "footer-guofeng-seal", "kind": "summary", "render_mode": "html", "fact_risk": "low", "illustration_backend": "existing-asset"})
+            spec_path = root / "image_specs.json"
+            spec_path.write_text(json.dumps(specs, ensure_ascii=False), encoding="utf-8")
+            return subprocess.run(
+                [str(PYTHON), str(ROOT / "scripts/validate_body_images.py"), str(article), "--spec", str(spec_path), "--min", "3"],
+                capture_output=True,
+                text=True,
+            )
+
+    def test_validator_accepts_footer_as_last_image_without_spec(self) -> None:
+        result = self._footer_case("\n## 参考资料\n- 链接\n\n![](images/footer-guofeng-seal.png)\n")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("footer present", result.stdout)
+
+    def test_validator_ignores_legacy_footer_spec_entry(self) -> None:
+        result = self._footer_case("\n![](images/footer-guofeng-seal.png)\n", footer_spec=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    def test_validator_rejects_footer_before_body_images_end(self) -> None:
+        result = self._footer_case("\n![](images/footer-guofeng-seal.png)\n\n## 尾声\n![行动图](images/actions.png)\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must appear once, as the last image", result.stderr + result.stdout)
+
+    def test_validator_rejects_legacy_footer(self) -> None:
+        result = self._footer_case("\n![](images/wechat.jpg)\n", footer_name="wechat.jpg")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("legacy footer image wechat", result.stderr + result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

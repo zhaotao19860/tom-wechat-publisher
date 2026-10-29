@@ -112,6 +112,22 @@ Wenyan's link-footnote endnote list (`--footnote`) is disabled by default in the
 
 Keep references as a manual `## 参考资料` section with a short human label followed by the bare URL, for example `- octoDNS 仓库 https://github.com/octodns/octodns`. Do not wrap a URL in `[url](url)`. Pass `--footnote` only for an article that deliberately uses inline anchor-text links and has no manual reference section.
 
+### Article footer
+
+Every WeChat article ends with the shared footer image `~/Desktop/wechat/images/footer-guofeng-seal.png`, placed after `## 参考资料` as the last image of the article:
+
+```markdown
+## 参考资料
+
+- ...
+
+![](../images/footer-guofeng-seal.png)
+```
+
+- Reference the shared file (relative `../images/...` from an article directory under `~/Desktop/wechat`); do not copy or regenerate it, so a footer update reaches every article.
+- The footer is not a body illustration: it gets no entry in `image_specs.json` and does not count toward the 3-4 body slots. `validate_body_images.py` skips it, requires it to be the last image when present, and rejects the retired footers `wechat.jpg` / `wechat-sign.jpg`.
+- This convention is for WeChat articles only; KU documents keep their own footer rules.
+
 ## Preflight Rules
 
 The wrapper must verify:
@@ -266,7 +282,15 @@ Before generating the cover:
 
 2. Allowed styles, in cycle order, are: `水墨写意`, `工笔重彩`, `青绿山水`, `宋画风`, `敦煌壁画风`, `文人画`, and `新中式国风`. This exact order defines the round-robin sequence in step 1, and it is kept in sync with `DEFAULT_STYLES` in `scripts/next_cover_style.py`. The cover scene and focal subject should suit the chosen style (for a flower-and-bird 花鸟, an interior, a figure, or an object composition, do not force a landscape), while still expressing the article's concept.
 3. Generate the cover through the `create-image` skill or its bundled image-generation wrapper. The cover must be genuinely AI-generated.
-4. Use a 2.35:1 composition suitable for a WeChat headline cover. Generate at 16:9 when the image API does not support 2.35:1, then crop deliberately to 1800x766 while preserving the focal subject.
+4. Use a 2.35:1 composition suitable for a WeChat headline cover. Generate at 16:9 when the image API does not support 2.35:1, then crop deliberately to 1800x766 while preserving the focal subject. Use the bundled helper; it needs only macOS `sips`, so do not reach for Pillow (it is not installed in the system Python and `pip install` is blocked by PEP 668):
+
+   ```bash
+   python3 ~/.comate/skills/tom-wechat-publisher/scripts/cover_image.py crop images/cover-raw.png \
+     --out images/cover-ai-poem.png --anchor top      # top | center | bottom | 0..1
+   python3 ~/.comate/skills/tom-wechat-publisher/scripts/cover_image.py check images/cover-ai-poem.png
+   ```
+
+   Pick the anchor that keeps the poem and focal subject inside the frame, keep the raw generation as a separate file, and look at the cropped result before moving on. `check` exits non-zero unless the cover is 1800x766 (or 2.35:1 at least 1800 wide).
 5. Store provenance in frontmatter:
 
 ```yaml
@@ -411,7 +435,7 @@ Body illustration planning is a required execution stage for technical articles,
 2. Keep 3-4 body slots by default; select cognitive anchors rather than mirroring every heading.
 3. Put the Ian Xiaohei `ai` + `low` scene first in the Markdown, before the first level-two heading; render or generate the remaining factual images after it.
 4. Render or generate the selected body images and insert their local Markdown references.
-5. Run `validate_body_images.py` and reject missing specs, missing local files, stale filename mappings, misplaced images, a non-Ian first body image, or fewer than three body images.
+5. Run `validate_body_images.py` and reject missing specs, missing local files, stale filename mappings, misplaced images, a non-Ian first body image, or fewer than three body images. The article footer (see "Article footer") is exempt from spec mapping but must be the last image.
 6. For `ai + low`, require `illustration_backend: ian-xiaohei-illustrations` and a matching `rendered_by` value before preview.
 7. For `mermaid`, require `illustration_backend: mermaid-render` and `rendered_by: mermaid-render` before preview.
 8. For `hybrid`, require `overlay_applied: true` before preview; a bare AI base is not a finished hybrid image.

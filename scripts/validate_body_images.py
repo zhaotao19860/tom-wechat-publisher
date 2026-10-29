@@ -9,6 +9,10 @@ from pathlib import Path
 
 
 GENERIC_LABELS = {"结果是什么", "要理解这个bug", "先说影响面"}
+# The shared article footer is not a body illustration: it has no spec and must be the last image.
+FOOTER_STEMS = {"footer-guofeng-seal"}
+# Footers replaced on 2026-10-08; still referencing one means the article was not updated.
+LEGACY_FOOTER_STEMS = {"wechat", "wechat-sign"}
 
 
 def _normalize_label(value: object) -> str:
@@ -28,7 +32,9 @@ def main() -> int:
     args = parser.parse_args()
 
     specs = json.loads(args.spec.read_text(encoding="utf-8"))
-    body = [item for item in specs if item.get("kind") != "cover"]
+    # Older articles listed the footer in image_specs.json to get past this check; ignore such entries.
+    body = [item for item in specs
+            if item.get("kind") != "cover" and Path(str(item.get("filename") or "")).stem not in FOOTER_STEMS]
     if len(body) < args.min:
         raise SystemExit(f"body image preflight failed: {len(body)} specs found, minimum is {args.min}")
 
@@ -37,6 +43,7 @@ def main() -> int:
     local_refs: dict[str, tuple[str, str]] = {}
     body_order: list[str] = []
     missing: list[str] = []
+    all_stems: list[str] = []
     for match in matches:
         ref = match.group(1)
         if "://" in ref or ref.startswith("data:"):
@@ -45,10 +52,22 @@ def main() -> int:
         if not path.is_file():
             missing.append(ref)
         stem = Path(ref).stem
+        all_stems.append(stem)
+        if stem in FOOTER_STEMS:
+            continue
         local_refs[stem] = (ref, _section_for_offset(text, match.start()))
         body_order.append(stem)
     if missing:
         raise SystemExit("body image preflight failed: missing references: " + ", ".join(missing))
+    legacy = sorted(stem for stem in local_refs if stem in LEGACY_FOOTER_STEMS)
+    if legacy:
+        raise SystemExit(
+            "body image preflight failed: legacy footer image " + ", ".join(legacy)
+            + "; replace it with ~/Desktop/wechat/images/footer-guofeng-seal.png as the last image"
+        )
+    footer_positions = [i for i, stem in enumerate(all_stems) if stem in FOOTER_STEMS]
+    if footer_positions and footer_positions != [len(all_stems) - 1]:
+        raise SystemExit("body image preflight failed: footer-guofeng-seal must appear once, as the last image")
 
     spec_by_name = {str(item.get("filename") or ""): item for item in body}
     unplanned = sorted(name for name in local_refs if name not in spec_by_name)
@@ -161,7 +180,8 @@ def main() -> int:
             + ", ".join(misrouted_mermaid)
         )
 
-    print(f"body image preflight passed: {len(body)} specs, {len(local_refs)} mapped references")
+    footer_note = ", footer present" if footer_positions else ", no footer image"
+    print(f"body image preflight passed: {len(body)} specs, {len(local_refs)} mapped references{footer_note}")
     return 0
 
 

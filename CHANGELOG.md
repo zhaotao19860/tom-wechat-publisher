@@ -6,7 +6,14 @@
 
 ### 新增
 
+- 新增 `scripts/cover_image.py`：只依赖 macOS `sips` 的封面工具。`crop` 保留全宽、按 `--anchor`（top/center/bottom/0..1）裁成 2.35:1，再缩放到 1800x766，不覆盖原图；`check` 检查封面是否为 1800x766，不是则返回 1。此前 agent 为裁封面反复调用 Pillow，系统 Python 没有安装，`pip install` 又被 PEP 668 拦截。SKILL.md 封面第 4 步写明用法。
+- SKILL.md 新增 “Article footer” 一节：文末统一引用 `~/Desktop/wechat/images/footer-guofeng-seal.png`，放在 `## 参考资料` 之后、作为最后一张图，不写进 `image_specs.json`。此约定原来只存在于 Comate 记忆中，其他 agent 不知道。
+
 - 入口输出运行标记，供 tom-workflow-optimize 切分每一次工作流运行：`check_topic_history.py` 开头向 stderr 输出 `[[wf-run start tom-wechat-publisher <run_id>]]`，`publish_draft.sh` 草稿创建成功后输出 `[[wf-run end tom-wechat-publisher <run_id> success]]`。`run_id` 由 `publish_draft.sh` 生成并经 `WECHAT_RUN_ID` 传给子脚本，单独调用时自动生成。标记只写 stderr，不影响 `--json` 输出。
+
+### 改进
+
+- `validate_body_images.py` 不再把页脚图当成未规划的正文配图：跳过页脚，要求页脚出现时必须是最后一张图，拒绝已停用的 `wechat.jpg` / `wechat-sign.jpg`；旧文章为绕过校验写进 specs 的页脚条目也一并忽略。用近期 19 篇带页脚的文章回归，全部通过。
 
 ## 2026-10-20
 
