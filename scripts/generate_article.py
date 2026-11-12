@@ -134,10 +134,12 @@ AI_TEXT_OVERLAY = os.environ.get("TOM_WECHAT_AI_TEXT_OVERLAY", "1").strip().lowe
 sys.path.insert(0, str(SCRIPT_DIR))
 try:
     import image_spec as _image_spec  # type: ignore
+    import tracks as _tracks  # type: ignore
     import ocr_validate as _ocr_validate  # type: ignore
 except Exception as _e:  # pragma: no cover
     _image_spec = None
     _ocr_validate = None
+    _tracks = None
     print(f"[generate-article:init] spec/ocr modules unavailable: {_e}", file=sys.stderr)
 
 # Optional HTML fallback renderer (Playwright). Imported lazily so the skill
@@ -3259,7 +3261,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--markdown", action="store_true", help="Print composed Markdown to stdout")
     p.add_argument("--no-images", action="store_true", help="Skip image generation entirely")
     p.add_argument("--image-visual-theme", default="", help="User-selected illustration theme")
+    p.add_argument(
+        "--track",
+        default="",
+        help="Content track written to frontmatter: dns (default), l4-gateway, ai-gateway",
+    )
     return p.parse_args()
+
+
+def _apply_track(markdown: str, track: str) -> str:
+    """Write an explicitly requested track into frontmatter; default dns output is unchanged."""
+    if not track or _tracks is None:
+        return markdown
+    return _tracks.ensure_frontmatter_track(markdown, track)
 
 
 def main() -> int:
@@ -3299,6 +3313,7 @@ def main() -> int:
         markdown = render_markdown(plan, facts, sources, source_text=text, topic_hint=topic, source_label=label)
         build_image_prompts_from_markdown(plan, markdown)
 
+    markdown = _apply_track(markdown, args.track)
     validate_article_ready(markdown)
     md_path = out_dir / "article.md"
     md_path.write_text(markdown, encoding="utf-8")
@@ -3318,6 +3333,7 @@ def main() -> int:
             print(f"[generate-article:write] markdown preserved (final) -> {md_path}", file=sys.stderr)
         else:
             markdown = render_markdown(plan, facts, sources, source_text=text, topic_hint=topic, source_label=label)
+            markdown = _apply_track(markdown, args.track)
             validate_article_ready(markdown)
             md_path.write_text(markdown, encoding="utf-8")
             print(f"[generate-article:write] markdown (final) -> {md_path}", file=sys.stderr)

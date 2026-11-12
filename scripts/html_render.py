@@ -34,6 +34,9 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+import tracks  # noqa: E402  (content-track kickers; dns keeps "DNS Daily")
 
 # Import palettes from image_spec for color consistency.
 PALETTES = [
@@ -212,7 +215,7 @@ def _render_cover_dark_gold(spec: dict) -> str:
   <div class="deco-circle-2"></div>
   <div class="deco-dot"></div>
   <div class="deco-line"></div>
-  <div class="kicker">DNS Daily · 安全观察</div>
+  <div class="kicker">{_esc(tracks.kicker(spec.get("track")))} · {_esc(tracks.column(spec.get("track")))}</div>
   <div class="title">{title}</div>
   <div class="rule"></div>
   <div class="subtitle">{subtitle or notes}</div>
@@ -795,7 +798,7 @@ def _render_cover_magazine(spec: dict) -> str:
   }}
 </style></head>
 <body>
-  <div class="kicker">DNS DAILY · FEATURE</div>
+  <div class="kicker">{_esc(tracks.kicker(spec.get("track"), upper=True))} · FEATURE</div>
   <div class="title">{title}</div>
   <div class="rule"></div>
   {f'<div class="sub">{subtitle}</div>' if subtitle else ''}
@@ -886,7 +889,7 @@ def _render_cover_grid(spec: dict) -> str:
   }}
 </style></head>
 <body>
-  <div class="kicker">DNS DAILY</div>
+  <div class="kicker">{_esc(tracks.kicker(spec.get("track"), upper=True))}</div>
   <div class="title">{title}</div>
   {f'<div class="sub">{subtitle}</div>' if subtitle else ''}
   {f'<div class="badges">{badges}</div>' if badges else ''}

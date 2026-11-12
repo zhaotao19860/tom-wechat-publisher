@@ -2,6 +2,16 @@
 
 本文件记录 `tom-wechat-publisher` 的重要能力变更。
 
+## 2026-11-11
+
+### 新增
+
+- 网关文章漏写 track 时提醒：`tracks.py hint ARTICLE.md` 在 frontmatter 没有 track、正文命中两个以上四层或 AI 网关关键词时打印一行建议，`publish_draft.sh` 在合集提醒后调用它，只提醒不拦截。深金色封面眉标的后半句按 track 取值（dns「安全观察」，网关「架构实践」）。
+- 新增内容线 `track`：article.md frontmatter 可写 `track: dns | l4-gateway | ai-gateway`，缺省或未知值按 `dns` 处理，旧文章输出不变。新增 `scripts/tracks.py` 集中定义每条线的显示名、配图眉标（dns 仍为 `DNS Daily` / `DNS DAILY`，四层为 `L4 GATEWAY`，AI 网关为 `AI GATEWAY`）、术语表和推荐合集（dns→DNS知识库，两条网关线→网关知识库）。
+- `image_spec.py` 把 frontmatter 的 track 写进 `image_specs.json`（无 track 时不写该键），网关线在 DNS 术语表之前先匹配四层或 AI 网关术语；英文短词按词边界匹配，避免 RS、DR、NAT 误命中普通单词。`html_render.py` 的三处封面眉标改为按 track 取值。
+- `generate_article.py` 新增 `--track`，`publish_draft.sh` 新增 `--track` 并透传给生成模式。`publish_draft.sh` 在草稿上传成功后、以及 dry-run/render-only/未加 `--upload` 结束时打印 `Album reminder: 发表时请在后台选择合集「...」`，因为草稿 API 设置不了合集。
+- `check_topic_history.py` 的每条历史命中附带该文章的 `track`；查重算法不变。
+
 ## 2026-10-29
 
 ### 新增

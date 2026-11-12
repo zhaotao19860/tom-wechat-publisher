@@ -56,6 +56,8 @@ Never reinterpret “预览”, “转换”, “排版”, “检查”, “润
 
 ## Quick Workflow
 
+For a gateway article, set `track: l4-gateway` or `track: ai-gateway` in the frontmatter before preparing it (generate mode: `--track`). DNS articles need no change. See Content Tracks.
+
 ### Prepare and preview
 
 ```bash
@@ -127,6 +129,29 @@ Every WeChat article ends with the shared footer image `~/Desktop/wechat/images/
 - Reference the shared file (relative `../images/...` from an article directory under `~/Desktop/wechat`); do not copy or regenerate it, so a footer update reaches every article.
 - The footer is not a body illustration: it gets no entry in `image_specs.json` and does not count toward the 3-4 body slots. `validate_body_images.py` skips it, requires it to be the last image when present, and rejects the retired footers `wechat.jpg` / `wechat-sign.jpg`.
 - This convention is for WeChat articles only; KU documents keep their own footer rules.
+
+## Content Tracks
+
+The account runs three content lines. An article declares its line with an optional frontmatter field:
+
+```yaml
+---
+title: "..."
+track: ai-gateway
+---
+```
+
+| `track` | Line | Image kicker | Album |
+|---|---|---|---|
+| `dns` | DNS | `DNS Daily` / `DNS DAILY` | DNS知识库 |
+| `l4-gateway` | 四层负载均衡网关 (LVS/DPDK, VIP, ECMP, 会话保持, 健康检查) | `L4 GATEWAY` | 网关知识库 |
+| `ai-gateway` | 七层 AI 网关 (模型路由, 限流, token 计费, fallback, OpenAI-compatible APIs, MCP) | `AI GATEWAY` | 网关知识库 |
+
+- A missing or unknown `track` resolves to `dns`, and DNS output stays byte-identical to articles written before tracks existed.
+- `scripts/tracks.py` holds the per-track display name, kicker, vocabulary, and album. `image_spec.py` copies `track` into `image_specs.json` and adds the gateway vocabulary to label extraction; `html_render.py` uses it for cover kickers.
+- `publish_draft.sh --generate-from ... --track l4-gateway` writes the field into the generated frontmatter.
+- The draft API cannot assign an album. After a draft upload, and at the end of `--dry-run` / `--render-only`, the wrapper prints `Album reminder: 发表时请在后台选择合集「...」`. Pass it on to the user: the album must be picked by hand in the WeChat backend when publishing.
+- `check_topic_history.py` reports each match's `track`, so a gateway topic that resembles a DNS article is easy to tell apart.
 
 ## Preflight Rules
 

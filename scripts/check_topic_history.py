@@ -16,6 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tracks  # noqa: E402
+
 
 DUPLICATE_EXIT = 3
 RELATED_EXIT = 4
@@ -41,6 +44,7 @@ class Article:
     path: Path
     title: str
     source: str
+    track: str = tracks.DEFAULT_TRACK
 
 
 def _unquote(value: str) -> str:
@@ -74,7 +78,7 @@ def read_article(path: Path) -> Optional[Article]:
             title = heading_match.group(1).strip()
     if not title:
         return None
-    return Article(path=path.resolve(), title=title, source=source)
+    return Article(path=path.resolve(), title=title, source=source, track=tracks.track_from_markdown(text))
 
 
 def _is_within(path: Path, parent: Path) -> bool:
@@ -219,6 +223,7 @@ def build_report(
                 "title": article.title,
                 "path": str(article.path),
                 "source": article.source,
+                "track": article.track,
                 "reasons": reasons or ["topic-similarity"],
             }
         )
@@ -248,7 +253,7 @@ def print_human_report(report: dict) -> None:
         print("No materially similar historical title or source was found.")
         return
     for match in report["matches"]:
-        print("- {:.0%} | {}".format(match["score"], match["title"]))
+        print("- {:.0%} | {} | track: {}".format(match["score"], match["title"], match.get("track", tracks.DEFAULT_TRACK)))
         print("  {}".format(match["path"]))
         print("  reasons: {}".format("; ".join(match["reasons"])))
     if report["status"] == "duplicate":

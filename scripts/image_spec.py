@@ -25,6 +25,17 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Optional
 
+import sys as _sys
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in _sys.path:
+    _sys.path.insert(0, str(_SCRIPT_DIR))
+import tracks  # noqa: E402
+
+# Content track of the article currently being processed by derive_specs().
+# Module-level so the many label helpers pick it up without new parameters.
+_ACTIVE_TRACK = tracks.DEFAULT_TRACK
+
 
 # A small palette pool. Backends pick by index so colors remain stable
 # across runs of the same article.
@@ -129,9 +140,13 @@ class ImageSpec:
     labels: list[str] = field(default_factory=list)
     locked_facts: list[str] = field(default_factory=list)
     qa_rules: list[str] = field(default_factory=list)
+    track: str = ""              # content track from frontmatter; omitted from JSON when empty
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        if not data.get("track"):
+            data.pop("track", None)
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -316,11 +331,24 @@ _GENERIC_CN_STOPWORDS = {
 }
 
 
-def _extract_technical_tokens(section_body: str, limit: int = 8) -> list[str]:
+def _track_token_in(token: str, text: str, lower: str) -> bool:
+    """Match a gateway-track token; ASCII tokens need word boundaries.
+
+    Short gateway terms such as RS, DR, TUN or NAT would otherwise hit
+    inside ordinary words (users, address, tuning, alternate).
+    """
+    if re.search(r"[\u3400-\u9fff]", token):
+        return token in text
+    pattern = r"(?<![A-Za-z0-9])" + re.escape(token.lower()) + r"(?![A-Za-z0-9])"
+    return re.search(pattern, lower) is not None
+
+
+def _extract_technical_tokens(section_body: str, limit: int = 8, track: Optional[str] = None) -> list[str]:
     """Return concrete domain nouns mentioned in the section.
 
     Combines a curated DNS/security whitelist with proper-noun candidates
     (capitalized ASCII words 3-30 chars, version-like tokens, CVE ids).
+    Gateway tracks check their own vocabulary before the DNS whitelist.
     """
     text = _strip_md(section_body)
     out: list[str] = []
@@ -344,8 +372,14 @@ def _extract_technical_tokens(section_body: str, limit: int = 8) -> list[str]:
     for m in re.finditer(r"\b\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9.]+)?\b", text):
         _add(m.group(0))
 
-    # 2) Curated DNS whitelist (case-insensitive match, original casing kept)
+    # 2) Curated track vocabulary (gateway lines only), then the DNS whitelist
+    # (case-insensitive match, original casing kept)
     lower = text.lower()
+    for token in tracks.track_tokens(track if track is not None else _ACTIVE_TRACK):
+        if _track_token_in(token, text, lower):
+            _add(token)
+            if len(out) >= limit:
+                return out[:limit]
     for token in DNS_TECHNICAL_TOKENS:
         if token.lower() in lower:
             _add(token)
@@ -918,6 +952,21 @@ def derive_specs(markdown_path: Path, visual_theme: str = "") -> list[ImageSpec]
     """
     md = markdown_path.read_text(encoding="utf-8")
     fm, body = _parse_frontmatter(md)
+    raw_track = fm.get("track") if isinstance(fm.get("track"), str) else ""
+    global _ACTIVE_TRACK
+    previous_track = _ACTIVE_TRACK
+    _ACTIVE_TRACK = tracks.normalize_track(raw_track)
+    try:
+        specs = _derive_specs_body(fm, body, visual_theme)
+    finally:
+        _ACTIVE_TRACK = previous_track
+    if raw_track:
+        for spec in specs:
+            spec.track = tracks.normalize_track(raw_track)
+    return specs
+
+
+def _derive_specs_body(fm: dict, body: str, visual_theme: str) -> list[ImageSpec]:
     title = fm.get("title") or _strip_md(re.search(r"^#\s+(.+)$", body, re.MULTILINE).group(1) if re.search(r"^#\s+(.+)$", body, re.MULTILINE) else "DNS 技术解读")
     sections = _parse_sections(body)
 

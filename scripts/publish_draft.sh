@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   publish_draft.sh article.md [--title "Title"] [--cover cover.jpg] [--author "Name"] [--theme theme] [--highlight theme] [--preview-themes] [--preview-dir DIR] [--no-open-preview] [--footnote] [--no-footnote] [--render-only] [--dry-run] [--keep-temp] [--theme-selection-confirmed] [--require-body-images] [--upload]
-  publish_draft.sh --generate-from SOURCE --topic "..." [--out-dir DIR] [--history-root DIR] [--topic-history-reviewed] [--allow-topic-repeat] [--search-query "..."] [--image-visual-theme THEME] [--image-theme-selection-confirmed] [--no-search] [--no-images] [--markdown] [--humanize]
+  publish_draft.sh --generate-from SOURCE --topic "..." [--out-dir DIR] [--history-root DIR] [--topic-history-reviewed] [--allow-topic-repeat] [--search-query "..."] [--image-visual-theme THEME] [--image-theme-selection-confirmed] [--no-search] [--no-images] [--markdown] [--humanize] [--track dns|l4-gateway|ai-gateway]
   publish_draft.sh --humanize article.md [--in-place] [--score] [--json]
 
 Generate mode (--generate-from):
@@ -14,6 +14,13 @@ Generate mode (--generate-from):
   image-heavy), generates illustrations via the /create-image workflow,
   then exits. If image generation fails, fix the prompt/article/backend and rerun;
   this wrapper does not switch to any alternate image backend.
+  --track writes the content track (dns, l4-gateway, ai-gateway) into the
+  generated frontmatter; omit it for DNS articles.
+
+Content tracks:
+  The frontmatter `track:` field picks the WeChat album to choose by hand when
+  publishing (the draft API cannot set albums). Missing or unknown means dns.
+  dns -> DNS知识库; l4-gateway and ai-gateway -> 网关知识库.
 
 Humanize mode (--humanize):
   Strips AI-writing tells (24-pattern catalog from op7418/Humanizer-zh +
@@ -42,6 +49,14 @@ This wrapper prepares WeChat-compatible Markdown/images and renders with Wenyan 
 Draft creation requires explicit --upload. It never publishes or mass-sends.
 By default, --preview-themes opens generated HTML previews; use --no-open-preview to skip this.
 USAGE
+}
+
+# The draft API cannot set an album, so remind the operator which one to pick.
+print_album_reminder() {
+  local album_name
+  album_name="$("$PYTHON" "$script_dir/tracks.py" album "$1" 2>/dev/null || true)"
+  printf 'Album reminder: 发表时请在后台选择合集「%s」（漏选的话 X 推广和多平台同步当天取不到链接）\n' "${album_name:-DNS知识库}"
+  "$PYTHON" "$script_dir/tracks.py" hint "$1" 2>/dev/null || true
 }
 
 mask_app_id() {
@@ -149,6 +164,7 @@ topic_history_reviewed=0
 allow_topic_repeat=0
 image_visual_theme="${TOM_WECHAT_IMAGE_VISUAL_THEME:-}"
 image_theme_selection_confirmed=0
+generate_track=""
 
 # Humanize-mode state
 humanize_path=""
@@ -247,6 +263,17 @@ while [[ $# -gt 0 ]]; do
       ;;
     --generate-from)
       generate_from="${2:-}"
+      shift 2
+      ;;
+    --track)
+      generate_track="${2:-}"
+      case "$generate_track" in
+        dns|l4-gateway|ai-gateway) ;;
+        *)
+          echo "ERROR: --track must be one of dns, l4-gateway, ai-gateway" >&2
+          exit 2
+          ;;
+      esac
       shift 2
       ;;
     --topic)
@@ -468,6 +495,9 @@ THEMES
   if [[ "$generate_markdown" -eq 1 ]]; then
     gen_cmd+=("--markdown")
   fi
+  if [[ -n "$generate_track" ]]; then
+    gen_cmd+=("--track" "$generate_track")
+  fi
   printf 'Generating article from: %s\n' "$generate_from" >&2
   printf 'Output directory: %s\n' "$generate_out_dir" >&2
   wechat_failure_context="generate-from: ${generate_from} | topic: ${generate_topic} | out: ${generate_out_dir}"
@@ -655,6 +685,7 @@ if [[ "$open_preview" -eq 1 && "$dry_run" -eq 0 ]] && command -v open >/dev/null
 fi
 if [[ "$dry_run" -eq 1 || "$render_only" -eq 1 || "$upload" -eq 0 ]]; then
   [[ "$upload" -eq 0 ]] && printf 'Upload: skipped (explicit --upload not provided)\n'
+  print_album_reminder "$article"
   exit 0
 fi
 wechat_app_id="${WECHAT_APP_ID:-}"
@@ -713,4 +744,5 @@ if ! draft_media_id="$("$PYTHON" "$script_dir/validate_publish_output.py" "$uplo
 fi
 printf 'Draft Media ID: %s\n' "$draft_media_id"
 printf 'Draft created successfully.\n'
+print_album_reminder "$article"
 printf '[[wf-run end tom-wechat-publisher %s success]]\n' "$WECHAT_RUN_ID" >&2
