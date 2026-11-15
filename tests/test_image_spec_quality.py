@@ -73,6 +73,92 @@ title: '示例'
             self.assertEqual(first["fact_risk"], "low")
             self.assertEqual(first["illustration_backend"], "ian-xiaohei-illustrations")
 
+    def test_medical_first_body_spec_uses_clinical_illustration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "images").mkdir()
+            (root / "images" / "intro.png").write_bytes(b"png")
+            article = root / "article.md"
+            article.write_text(
+                """---
+title: '他汀的区别'
+track: medical
+cover: 'images/cover.png'
+cover_generation: 'ai'
+cover_style: '临床插画'
+cover_typography: 'none'
+---
+# 他汀的区别
+开场。
+![开场隐喻](images/intro.png)
+
+## 机制
+他汀降低 LDL-C，需要复查转氨酶。
+
+## 复查
+开始用药 4 到 6 周复查血脂和肌酸激酶。
+""",
+                encoding="utf-8",
+            )
+            out = root / "image_specs.json"
+            result = subprocess.run(
+                [str(PYTHON), str(ROOT / "scripts/image_spec.py"), str(article), "--out", str(out)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            specs = json.loads(out.read_text(encoding="utf-8"))
+            first = [spec for spec in specs if spec["kind"] != "cover"][0]
+            self.assertEqual(first["track"], "medical")
+            self.assertEqual(first["render_mode"], "ai")
+            self.assertEqual(first["fact_risk"], "low")
+            self.assertEqual(first["illustration_backend"], "clinical-illustration")
+            self.assertEqual(first["rendered_by"], "clinical-illustration/create-image")
+            self.assertNotEqual(first["illustration_backend"], "ian-xiaohei-illustrations")
+            cover = next(spec for spec in specs if spec["kind"] == "cover")
+            self.assertEqual(cover["cover_style"], "临床插画")
+            self.assertEqual(cover["cover_text"], [])
+            self.assertEqual(cover["text_policy"], "cover-text-free")
+
+    def test_medical_validator_rejects_xiaohei_opener(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "images").mkdir()
+            for name in ("scene.png", "facts.png", "actions.png"):
+                (root / "images" / name).write_bytes(b"png")
+            article = root / "article.md"
+            article.write_text(
+                """---
+title: '他汀'
+track: medical
+---
+# 他汀
+开场。
+![小黑场景](images/scene.png)
+
+## 机制
+![事实图](images/facts.png)
+
+## 复查
+![复查图](images/actions.png)
+""",
+                encoding="utf-8",
+            )
+            specs = [
+                {"filename": "scene", "kind": "summary", "source_section": "", "render_mode": "ai", "fact_risk": "low", "illustration_backend": "ian-xiaohei-illustrations", "rendered_by": "ian-xiaohei-illustrations/create-image", "labels": [], "items": []},
+                {"filename": "facts", "kind": "impact", "source_section": "机制", "render_mode": "html", "fact_risk": "high", "illustration_backend": "html-render", "rendered_by": "html-render", "labels": ["LDL-C"], "items": [], "locked_facts": ["LDL-C"]},
+                {"filename": "actions", "kind": "checklist", "source_section": "复查", "render_mode": "html", "fact_risk": "high", "illustration_backend": "html-render", "rendered_by": "html-render", "labels": ["复查"], "items": [], "locked_facts": ["复查"]},
+            ]
+            spec_path = root / "image_specs.json"
+            spec_path.write_text(json.dumps(specs, ensure_ascii=False), encoding="utf-8")
+            result = subprocess.run(
+                [str(PYTHON), str(ROOT / "scripts/validate_body_images.py"), str(article), "--spec", str(spec_path), "--min", "3"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("medical first body image must be a clinical illustration", result.stderr + result.stdout)
+
     def test_validator_rejects_generic_labels_and_missing_locked_facts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

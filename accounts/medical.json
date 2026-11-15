@@ -1,0 +1,24 @@
+{
+  "id": "medical",
+  "display_name": "医学号",
+  "track": "medical",
+  "author": "赵涛",
+  "theme": "med-clinical",
+  "history_root": "~/Desktop/wechat-medical",
+  "app_id_env": "WECHAT_MEDICAL_APP_ID",
+  "app_secret_env": "WECHAT_MEDICAL_APP_SECRET",
+  "keychain_service": "tom-wechat-publisher-medical",
+  "album": "医学科普库",
+  "footer_image": "",
+  "image_visual_theme": "clinical-illustration",
+  "preview_themes": [
+    "med-clinical",
+    "med-warm-paper",
+    "med-quiet-blue"
+  ],
+  "cover_styles": [
+    "临床插画",
+    "医学水彩",
+    "临床信息图"
+  ]
+}

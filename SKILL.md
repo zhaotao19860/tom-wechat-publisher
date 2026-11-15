@@ -1,6 +1,6 @@
 ---
 name: tom-wechat-publisher
-description: Generate, polish, illustrate, prepare, validate, preview, and explicitly upload WeChat Official Account draft articles. Trigger whenever the user asks to turn a URL, web announcement, local file, meeting notes, conversation, summary, or topic brief into a WeChat article, or mentions 公众号, 微信公众号, 草稿箱, Markdown/md 公众号排版, 草稿上传, 封面处理, 正文图片兼容, 公众号预览, or WeChat media errors such as 40113, or asks for a 视频讲解/讲解视频/配音动画 to accompany an article. It supports source-grounded article generation, direct conversation/context-to-article workflows, local Markdown preparation, AI Chinese-painting covers, deterministic factual infographics, and draft-only upload. Do not trigger for standalone illustration generation, GitHub Pages publishing, or mass sending. This skill may create drafts only after explicit user authorization; it must never publish or mass-send.
+description: Generate, polish, illustrate, prepare, validate, preview, and explicitly upload WeChat Official Account draft articles. Trigger whenever the user asks to turn a URL, web announcement, local file, meeting notes, conversation, summary, or topic brief into a WeChat article, or mentions 公众号, 微信公众号, 草稿箱, Markdown/md 公众号排版, 草稿上传, 封面处理, 正文图片兼容, 公众号预览, or WeChat media errors such as 40113, or asks for a 视频讲解/讲解视频/配音动画 to accompany an article. It supports source-grounded article generation, direct conversation/context-to-article workflows, local Markdown preparation, multi-account profiles, AI Chinese-painting covers for technical accounts, clinical-illustration covers and body images for the medical account, deterministic factual infographics, and draft-only upload. Do not trigger for standalone illustration generation, GitHub Pages publishing, or mass sending. This skill may create drafts only after explicit user authorization; it must never publish or mass-send.
 ---
 
 # WeChat Draft Publisher
@@ -11,7 +11,17 @@ Use this skill to turn a URL, local source file, conversation, meeting note, sum
 
 The default workflow stops after preparation and preview. Creating a draft is a side effect and requires explicit user authorization in the current request.
 
-Use `赵涛` as the default article author. Resolve author precedence as `--author` > `WECHAT_AUTHOR` > `赵涛`, so explicit per-article and environment overrides continue to work.
+Use `赵涛` as the default article author. Resolve author precedence as `--author` > `WECHAT_AUTHOR` > account profile author > `赵涛`, so explicit per-article, environment and per-account overrides continue to work.
+
+## Account Profiles
+
+The skill supports more than one WeChat Official Account. Each account is a JSON profile in `accounts/`; `accounts/medical.json` is the independent medical account. Never share one account's credentials, history root or album with another account.
+
+- Select a profile with `--account medical` or `TOM_WECHAT_ACCOUNT=medical`. Omitting both keeps the built-in technical account, so existing DNS/gateway workflows are unchanged.
+- A profile isolates the AppID/AppSecret **variable names** (never the secret values), Keychain service, author, default theme, history root, album, footer image, image style, preview themes and default content track. The medical profile uses `WECHAT_MEDICAL_APP_ID` / `WECHAT_MEDICAL_APP_SECRET` and `tom-wechat-publisher-medical`.
+- `publish_draft.sh` resolves the profile after argument parsing and prints `Account profile: ...`; before upload it prints `Target account: ...` and the masked AppID. Treat a wrong target account as a hard stop.
+- A dedicated profile history root is created on first generate-mode run so medical topic de-duplication never mixes with technical articles.
+- `accounts/*.json` must contain no secrets. Store credentials in environment variables or the account's Keychain service.
 
 ## Scope
 
@@ -116,7 +126,7 @@ Keep references as a manual `## 参考资料` section with a short human label f
 
 ### Article footer
 
-Every WeChat article ends with the shared footer image `~/Desktop/wechat/images/footer-guofeng-seal.png`, placed after `## 参考资料` as the last image of the article:
+Technical accounts end with the shared footer image `~/Desktop/wechat/images/footer-guofeng-seal.png`, placed after `## 参考资料` as the last image of the article. The medical account may set `footer_image` in its profile; leave it empty to use no footer image rather than borrowing the technical account's seal.
 
 ```markdown
 ## 参考资料
@@ -127,12 +137,12 @@ Every WeChat article ends with the shared footer image `~/Desktop/wechat/images/
 ```
 
 - Reference the shared file (relative `../images/...` from an article directory under `~/Desktop/wechat`); do not copy or regenerate it, so a footer update reaches every article.
-- The footer is not a body illustration: it gets no entry in `image_specs.json` and does not count toward the 3-4 body slots. `validate_body_images.py` skips it, requires it to be the last image when present, and rejects the retired footers `wechat.jpg` / `wechat-sign.jpg`.
+- The footer is not a body illustration: it gets no entry in `image_specs.json` and does not count toward the 3-4 body slots. `validate_body_images.py` skips it, requires it to be the last image when present, accepts `--footer NAME` / `TOM_WECHAT_FOOTER_IMAGE`, and rejects the retired footers `wechat.jpg` / `wechat-sign.jpg`.
 - This convention is for WeChat articles only; KU documents keep their own footer rules.
 
 ## Content Tracks
 
-The account runs three content lines. An article declares its line with an optional frontmatter field:
+The accounts run four content lines. An article declares its line with an optional frontmatter field:
 
 ```yaml
 ---
@@ -146,10 +156,11 @@ track: ai-gateway
 | `dns` | DNS | `DNS Daily` / `DNS DAILY` | DNS知识库 |
 | `l4-gateway` | 四层负载均衡网关 (LVS/DPDK, VIP, ECMP, 会话保持, 健康检查) | `L4 GATEWAY` | 网关知识库 |
 | `ai-gateway` | 七层 AI 网关 (模型路由, 限流, token 计费, fallback, OpenAI-compatible APIs, MCP) | `AI GATEWAY` | 网关知识库 |
+| `medical` | 医学科普 (疾病、用药、剂量、禁忌、复查与就医提示) | `MED PRACTICE` / 临床笔记 | 医学科普库 |
 
-- A missing or unknown `track` resolves to `dns`, and DNS output stays byte-identical to articles written before tracks existed.
-- `scripts/tracks.py` holds the per-track display name, kicker, vocabulary, and album. `image_spec.py` copies `track` into `image_specs.json` and adds the gateway vocabulary to label extraction; `html_render.py` uses it for cover kickers.
-- `publish_draft.sh --generate-from ... --track l4-gateway` writes the field into the generated frontmatter.
+- A missing or unknown `track` resolves to `dns`, and DNS output stays byte-identical to articles written before tracks existed. `track: medical` is required for the medical account; do not rely on keyword inference in the frontmatter.
+- `scripts/tracks.py` holds the per-track display name, kicker, vocabulary, and album. `image_spec.py` copies `track` into `image_specs.json` and adds the track vocabulary to label extraction; `html_render.py` uses it for cover/kicker chrome and Chinese labels on deterministic diagrams.
+- `publish_draft.sh --generate-from ... --track l4-gateway` writes the field into the generated frontmatter. The `medical` account profile supplies `medical` as the default track when `--track` is omitted.
 - The draft API cannot assign an album. After a draft upload, and at the end of `--dry-run` / `--render-only`, the wrapper prints `Album reminder: 发表时请在后台选择合集「...」`. Pass it on to the user: the album must be picked by hand in the WeChat backend when publishing.
 - `check_topic_history.py` reports each match's `track`, so a gateway topic that resembles a DNS article is easy to tell apart.
 
@@ -290,9 +301,30 @@ When the user asks for a 视频讲解 / 讲解视频 / 动画视频 to go with a
 
 edge-tts sends the narration text to Microsoft's online service, so only narrate publishable text. Install it pinned (`edge-tts==7.3.1`) in a venv and point `TOM_WECHAT_EDGE_TTS` at it. You cannot hear the result, so ask the user to listen before calling the voice done.
 
-## Mandatory AI Chinese-Painting Cover
+## Mandatory AI Cover
 
-Every article prepared by this skill must use an AI-generated cover in a Chinese painting style. This is a hard requirement, not a visual suggestion.
+Every article prepared by this skill must use a genuinely AI-generated cover. Technical accounts use a Chinese painting style; the medical account uses a clinical illustration style. This is a hard requirement, not a visual suggestion.
+
+### Medical account covers
+
+`track: medical` switches the cover contract:
+
+1. Allowed styles are `临床插画`, `医学水彩`, and `临床信息图`. Cycle them with `python3 scripts/next_cover_style.py --track medical --history-root ~/Desktop/wechat-medical`.
+2. Use a calm clinical editorial illustration: restrained line-and-wash or flat vector, muted teal/sage/warm-neutral palette, anonymous non-identifiable people (if any), one everyday-care or clinical metaphor, generous negative space. No gore, surgery close-up, identifiable patient, hospital logo, diagnostic image presented as fact, guohua mountains, or SaaS dashboard.
+3. Do not auto-generate a poem. `cover_poem` is optional and may be omitted or empty. If the user supplies an inscription, it may contain 2 or 4 lines and should be set as a quiet printed/semi-brush inscription, not guohua calligraphy.
+4. `cover_typography` may be `none` when there is no inscription; otherwise use `vertical`, `horizontal`, or `split`.
+5. Keep all readable text out of the cover by default. Never render drug names, doses, lab values, or patient identifiers.
+
+Example:
+
+```yaml
+cover: "images/cover-medical.png"
+cover_generation: "ai"
+cover_style: "临床插画"
+cover_typography: "none"
+```
+
+### Technical account covers
 
 Before generating the cover:
 
@@ -328,9 +360,9 @@ Do not use HTML/CSS rendering, charts, screenshots, stock images, old article as
 
 The cover should express the article concept through Chinese visual language rather than imitate a generic cybersecurity poster.
 
-### Mandatory poetic inscription
+### Poetic inscription (technical accounts)
 
-Every new or regenerated cover must include an original four-line Chinese poetic inscription derived from the article. All four lines must use one consistent length, either exactly 5 or exactly 7 Han characters per line. The four lines should follow this shape: scene, tension, action, consequence. This is a generation contract, not a request for a title paraphrase.
+Every new or regenerated technical cover must include an original four-line Chinese poetic inscription derived from the article. The medical account is exempt: its inscription is optional and must be user-supplied. All four lines must use one consistent length, either exactly 5 or exactly 7 Han characters per line. The four lines should follow this shape: scene, tension, action, consequence. This is a generation contract, not a request for a title paraphrase.
 
 1. Write the poem after the article is finalized. Extract the article's central image, tension, and consequence rather than paraphrasing its title.
 2. Keep the language concise and classically inflected, but understandable. Do not force technical terms, product names, English, CVE/GHSA identifiers, or marketing slogans into the poem.
@@ -360,7 +392,7 @@ cover_typography: "vertical"
 
 HTML/CSS text compositing is a last-resort fallback only after at least one integrated generation and one image-to-image repair attempt fail. It must never replace the AI painting and must never introduce a visible panel, banner, card, or backing rectangle.
 
-Before preview or upload, stop with an error if the cover is missing, `cover_generation` is not `ai`, `cover_style` is outside the allowed list, a new or regenerated poem does not contain exactly 4 same-length lines of 5 or 7 Han characters, or typography is invalid. An unchanged historical article may retain exactly 2 lines under the explicit compatibility path. Do not silently accept a technically valid but non-compliant new cover.
+Before preview or upload, stop with an error if the cover is missing, `cover_generation` is not `ai`, `cover_style` is outside the track's allowed list, a technical-account poem does not contain exactly 4 same-length lines of 5 or 7 Han characters, or typography is invalid. A medical-account poem may be absent or contain 2/4 lines, and `cover_typography: none` is valid when absent. An unchanged historical article may retain exactly 2 lines under the explicit compatibility path. Do not silently accept a technically valid but non-compliant new cover.
 
 ## Hybrid Body Illustration Routing
 
@@ -378,7 +410,9 @@ After the article is finalized, identify only the concepts that materially reduc
 
 Do not illustrate every heading. A normal technical article should use 3-4 body images with different information structures.
 
-For technical articles, make the first body image an editorial visual anchor: place one `ai` + `low` Ian Xiaohei illustration before the first `##` heading. 小黑 must perform the article's central action on a pure-white hand-drawn scene. Put exact versions, CVE identifiers, commands, tables, and checklists in later deterministic HTML or hybrid images. `validate_body_images.py` rejects any article whose first body image is not an Ian Xiaohei `ai` + `low` slot.
+For technical articles, make the first body image an editorial visual anchor: place one `ai` + `low` Ian Xiaohei illustration before the first `##` heading. 小黑 must perform the article's central action on a pure-white hand-drawn scene. Put exact versions, CVE identifiers, commands, tables, and checklists in later deterministic HTML or hybrid images. `validate_body_images.py` rejects any technical article whose first body image is not an Ian Xiaohei `ai` + `low` slot.
+
+For the medical account, the first body image must **not** use Ian Xiaohei. Use a clinical editorial illustration (`illustration_backend: clinical-illustration`, anonymous figures, no cartoon, no readable drug names/doses) or a deterministic opener. `validate_body_images.py` rejects an Ian opener on `track: medical`.
 
 ### Choose a visual structure
 
@@ -398,20 +432,20 @@ Assign every image one `render_mode` and one `fact_risk`. Pick whatever backend
 fits the content; never default every slot to one backend. The goal for every
 body image is dense information, a sensible layout, and no large blank band.
 
-- `ai` + `low`: delegate the complete body illustration to `ian-xiaohei-illustrations`. Use Ian's pure-white, minimalist black hand-drawn visual DNA; 小黑 must perform the core conceptual action. Use no text or at most 3-5 short Chinese labels, and run Ian's QA checklist. Ian invokes `create-image` as its image backend.
+- `ai` + `low`: for technical tracks, delegate the complete body illustration to `ian-xiaohei-illustrations`. Use Ian's pure-white, minimalist black hand-drawn visual DNA; 小黑 must perform the core conceptual action. Use no text or at most 3-5 short Chinese labels, and run Ian's QA checklist. Ian invokes `create-image` as its image backend. For `track: medical`, use `clinical-illustration`: a calm clinical editorial illustration, anonymous figures, no cartoon mascot, text-free, and no anatomy presented as a diagnostic image.
 - `mermaid` + `medium/high`: ordered flows, relationships, comparisons, protocol layers, and timelines. This is the preferred backend for structural/relational content. The mermaid backend auto-lays-out the graph and captures it full-page at WeChat width, so there is no fixed 16:9 canvas and no large blank band. Every visible label comes straight from the spec, so exact facts stay verbatim (deterministic, not AI-guessed) — mermaid is fact-safe even at `high` risk.
 - `html` + `high`: genuine numeric series (5-10 comparable values on a bar chart) and dense tables where a chart fills the canvas. Render all facts deterministically.
 - `hybrid` + `medium/high`: mechanism, architecture, or attack path that needs an AI visual base plus exact labels. Do not delegate locked facts to Ian or any free-form image prompt.
 
 Prefer `mermaid` over the fixed 16:9 Swiss layouts for flows, comparisons, timelines, and relationship diagrams: the Swiss layouts assume slide-density content and leave large blank areas when the spec is sparse. Keep `html` for numeric bar charts (which fill their canvas) and reserve `hybrid` for slots that genuinely need an AI base.
 
-For low-risk AI body slots, `tom-wechat-publisher` owns article selection and fact-risk classification, while `ian-xiaohei-illustrations` owns the shot metaphor, 小黑 action, prompt construction, `create-image` invocation, and Ian QA. The cover remains on the mandatory Chinese-painting workflow. The image model must not infer or rewrite exact data.
+For low-risk AI body slots on technical tracks, `tom-wechat-publisher` owns article selection and fact-risk classification, while `ian-xiaohei-illustrations` owns the shot metaphor, 小黑 action, prompt construction, `create-image` invocation, and Ian QA. For `track: medical`, the skill owns the clinical-illustration prompt and the slot must stay text-free. The cover follows the account's cover workflow (guohua for technical, clinical illustration for medical). The image model must not infer or rewrite exact data.
 
 ### Mermaid backend
 
 Structural/relational body images are rendered by `html_render.py` through the bundled mermaid renderer:
 
-- `image_spec.py` routes `flow`→`pipeline`, `relations`→`hub-and-spoke`, `timeline`→`timeline`, `compare`→`before-after`, and `checklist`→`checklist` to `render_mode: "mermaid"`, `illustration_backend: "mermaid-render"`. Genuine numeric series (≥5 comparable values) stay on `html` + `data-first`; scenes/impacts stay on `ai` (Ian).
+- `image_spec.py` routes `flow`→`pipeline`, `relations`→`hub-and-spoke`, `timeline`→`timeline`, `compare`→`before-after`, and `checklist`→`checklist` to `render_mode: "mermaid"`, `illustration_backend: "mermaid-render"`. Genuine numeric series (≥5 comparable values) stay on `html` + `data-first`; scenes/impacts stay on `ai` (Ian for technical tracks, clinical illustration for `medical`).
 - `html_render.build_mermaid_source(spec)` maps the `structure` to a mermaid flowchart; `render_mermaid_png(spec, png)` renders it to SVG via the local `mermaid` package, wraps it in a WeChat-width HTML shell with a titled header, and screenshots it full-page with Playwright (auto height, no blank band).
 - The renderer needs the `mermaid` npm package installed once at the skill root: `cd ~/.comate/skills/tom-wechat-publisher && npm install`. Playwright's Chromium (already required for HTML rendering) does the rasterization; no extra browser download.
 - `rendered_by` must be `mermaid-render`. `validate_body_images.py` rejects a `mermaid` slot whose backend or `rendered_by` is not `mermaid-render`, and still requires `locked_facts` for any `high`-risk deterministic slot.
@@ -439,7 +473,7 @@ Each body image specification must include:
 {
   "render_mode": "ai | html | hybrid | mermaid",
   "fact_risk": "low | medium | high",
-  "illustration_backend": "ian-xiaohei-illustrations | mermaid-render | html-render | create-image",
+  "illustration_backend": "ian-xiaohei-illustrations | clinical-illustration | mermaid-render | html-render | create-image",
   "rendered_by": "actual backend recorded after generation",
   "overlay_applied": false,
   "structure": "pipeline | layer-stack | hub-and-spoke | before-after | data-first | text-scene | checklist",
@@ -458,10 +492,10 @@ Body illustration planning is a required execution stage for technical articles,
 
 1. Run `image_spec.py` to create `image_specs.json`.
 2. Keep 3-4 body slots by default; select cognitive anchors rather than mirroring every heading.
-3. Put the Ian Xiaohei `ai` + `low` scene first in the Markdown, before the first level-two heading; render or generate the remaining factual images after it.
+3. Put the opening image first in the Markdown, before the first level-two heading: technical tracks use the Ian Xiaohei `ai` + `low` scene; `medical` uses a clinical illustration or deterministic opener, never Ian. Render or generate the remaining factual images after it.
 4. Render or generate the selected body images and insert their local Markdown references.
-5. Run `validate_body_images.py` and reject missing specs, missing local files, stale filename mappings, misplaced images, a non-Ian first body image, or fewer than three body images. The article footer (see "Article footer") is exempt from spec mapping but must be the last image.
-6. For `ai + low`, require `illustration_backend: ian-xiaohei-illustrations` and a matching `rendered_by` value before preview.
+5. Run `validate_body_images.py` and reject missing specs, missing local files, stale filename mappings, misplaced images, a wrong-track first body image, or fewer than three body images. The article footer (see "Article footer") is exempt from spec mapping but must be the last image.
+6. For `ai + low`, require `ian-xiaohei-illustrations` on technical tracks and `clinical-illustration` on `medical`, each with a matching `rendered_by` value before preview.
 7. For `mermaid`, require `illustration_backend: mermaid-render` and `rendered_by: mermaid-render` before preview.
 8. For `hybrid`, require `overlay_applied: true` before preview; a bare AI base is not a finished hybrid image.
 9. Run OCR and visual QA for locked labels, then render the WeChat preview.
@@ -492,15 +526,16 @@ For `hybrid` images:
 
 Before upload, inspect all generated or converted images:
 
-- Verify the cover is AI-generated and visibly follows the selected Chinese painting style.
+- Verify the cover is AI-generated and visibly follows the account's selected style: Chinese painting for technical tracks, clinical illustration for `medical`.
 - Verify every body image matches its declared `render_mode`, `fact_risk`, `illustration_backend`, `rendered_by`, and `locked_facts`.
 - For Ian slots, apply `ian-xiaohei-illustrations/references/qa-checklist.md`: pure white background, 小黑 as the core action, large blank space, sparse short labels, and no PPT/card-grid appearance.
+- For `medical` clinical-illustration slots, verify: no cartoon or mascot, no identifiable patient or wristband, no gore or diagnostic image presented as fact, no readable drug name/dose/lab value, and a calm clinical editorial look.
 - Reject garbled, duplicated, clipped, off-topic, or incorrectly connected labels.
 - Confirm exact numbers, versions, code paths, category order, and configuration strings against the article.
 - Confirm label positions point to the intended object or flow.
 - Confirm the full subject and labels remain readable at WeChat article width.
 - Reject accidental logos, watermarks, unrelated English, unsupported facts, and decorative clutter.
-- Reject visually repetitive image sets or a set without both an AI visual anchor and a deterministic factual image.
+- Reject visually repetitive image sets or a set without both a track-appropriate visual anchor and a deterministic factual image.
 - Regenerate, image-to-image repair, or reroute any image that fails its slot-specific QA rules.
 
 Useful scripts:
@@ -529,7 +564,7 @@ After preparation, report:
 
 - Prepared Markdown path.
 - Preview path or paths.
-- Resolved title, author, cover, body image count, and theme.
+- Resolved title, author, cover, body image count, theme, account profile, and content track.
 - The `check_prose.py` result for the delivered text.
 - Any warnings or skipped optional checks.
 

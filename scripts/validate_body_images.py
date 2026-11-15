@@ -4,15 +4,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 
 
 GENERIC_LABELS = {"结果是什么", "要理解这个bug", "先说影响面"}
-# The shared article footer is not a body illustration: it has no spec and must be the last image.
-FOOTER_STEMS = {"footer-guofeng-seal"}
+# The article footer is not a body illustration: it has no spec and must be the last image.
+# Accounts may override the footer via TOM_WECHAT_FOOTER_IMAGE; the default keeps
+# the historical guofeng seal.
+DEFAULT_FOOTER = "footer-guofeng-seal"
 # Footers replaced on 2026-10-08; still referencing one means the article was not updated.
 LEGACY_FOOTER_STEMS = {"wechat", "wechat-sign"}
+
+
+def _article_track(text: str) -> str:
+    match = re.search(r"(?mi)^track\s*:\s*[\"']?([^\"'\n#]+)", text)
+    if not match:
+        return "dns"
+    return match.group(1).strip().lower() or "dns"
 
 
 def _normalize_label(value: object) -> str:
@@ -29,12 +39,15 @@ def main() -> int:
     parser.add_argument("article", type=Path)
     parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument("--min", type=int, default=3)
+    parser.add_argument("--footer", default=os.environ.get("TOM_WECHAT_FOOTER_IMAGE", DEFAULT_FOOTER))
     args = parser.parse_args()
 
+    footer_stem = Path(str(args.footer or DEFAULT_FOOTER)).stem or DEFAULT_FOOTER
+    footer_stems = {footer_stem}
     specs = json.loads(args.spec.read_text(encoding="utf-8"))
     # Older articles listed the footer in image_specs.json to get past this check; ignore such entries.
     body = [item for item in specs
-            if item.get("kind") != "cover" and Path(str(item.get("filename") or "")).stem not in FOOTER_STEMS]
+            if item.get("kind") != "cover" and Path(str(item.get("filename") or "")).stem not in footer_stems]
     if len(body) < args.min:
         raise SystemExit(f"body image preflight failed: {len(body)} specs found, minimum is {args.min}")
 
@@ -53,7 +66,7 @@ def main() -> int:
             missing.append(ref)
         stem = Path(ref).stem
         all_stems.append(stem)
-        if stem in FOOTER_STEMS:
+        if stem in footer_stems:
             continue
         local_refs[stem] = (ref, _section_for_offset(text, match.start()))
         body_order.append(stem)
@@ -65,9 +78,9 @@ def main() -> int:
             "body image preflight failed: legacy footer image " + ", ".join(legacy)
             + "; replace it with ~/Desktop/wechat/images/footer-guofeng-seal.png as the last image"
         )
-    footer_positions = [i for i, stem in enumerate(all_stems) if stem in FOOTER_STEMS]
+    footer_positions = [i for i, stem in enumerate(all_stems) if stem in footer_stems]
     if footer_positions and footer_positions != [len(all_stems) - 1]:
-        raise SystemExit("body image preflight failed: footer-guofeng-seal must appear once, as the last image")
+        raise SystemExit(f"body image preflight failed: {footer_stem} must appear once, as the last image")
 
     spec_by_name = {str(item.get("filename") or ""): item for item in body}
     unplanned = sorted(name for name in local_refs if name not in spec_by_name)
@@ -83,7 +96,20 @@ def main() -> int:
         raise SystemExit("body image preflight failed: no body image references found")
     first_backend = str(first_body.get("illustration_backend") or "")
     first_rendered_by = str(first_body.get("rendered_by") or "")
-    if not (
+    track = _article_track(text)
+    if track == "medical":
+        # The medical opener must never be the Ian cartoon. A clinical AI
+        # illustration or a deterministic opener is acceptable.
+        if (
+            first_backend == "ian-xiaohei-illustrations"
+            or first_backend not in {"clinical-illustration", "html-render", "mermaid-render"}
+            or first_body.get("render_mode") not in {"ai", "html", "mermaid"}
+        ):
+            raise SystemExit(
+                "body image preflight failed: medical first body image must be a clinical illustration "
+                f"or deterministic opener, not Ian Xiaohei; got {body_order[0]}"
+            )
+    elif not (
         first_body.get("render_mode") == "ai"
         and first_body.get("fact_risk") == "low"
         and first_backend == "ian-xiaohei-illustrations"
@@ -141,20 +167,35 @@ def main() -> int:
     if quality_errors:
         raise SystemExit("body image preflight failed: " + " | ".join(quality_errors))
 
-    misrouted_ai = [
-        str(item.get("filename")) for item in body
-        if item.get("render_mode") == "ai"
-        and item.get("fact_risk") == "low"
-        and (
-            item.get("illustration_backend") != "ian-xiaohei-illustrations"
-            or not str(item.get("rendered_by") or "").startswith("ian-xiaohei-illustrations")
-        )
-    ]
-    if misrouted_ai:
-        raise SystemExit(
-            "body image preflight failed: low-risk AI images were not rendered by Ian Xiaohei: "
-            + ", ".join(misrouted_ai)
-        )
+    if track == "medical":
+        misrouted_ai = [
+            str(item.get("filename")) for item in body
+            if item.get("render_mode") == "ai"
+            and (
+                item.get("illustration_backend") != "clinical-illustration"
+                or not str(item.get("rendered_by") or "").startswith("clinical-illustration")
+            )
+        ]
+        if misrouted_ai:
+            raise SystemExit(
+                "body image preflight failed: medical AI images were not rendered as clinical illustrations: "
+                + ", ".join(misrouted_ai)
+            )
+    else:
+        misrouted_ai = [
+            str(item.get("filename")) for item in body
+            if item.get("render_mode") == "ai"
+            and item.get("fact_risk") == "low"
+            and (
+                item.get("illustration_backend") != "ian-xiaohei-illustrations"
+                or not str(item.get("rendered_by") or "").startswith("ian-xiaohei-illustrations")
+            )
+        ]
+        if misrouted_ai:
+            raise SystemExit(
+                "body image preflight failed: low-risk AI images were not rendered by Ian Xiaohei: "
+                + ", ".join(misrouted_ai)
+            )
 
     incomplete_hybrid = [
         str(item.get("filename")) for item in body

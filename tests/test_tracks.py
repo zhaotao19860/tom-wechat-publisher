@@ -68,6 +68,9 @@ class TrackRegistryTests(unittest.TestCase):
         self.assertEqual(tracks.album(None), "DNS知识库")
         self.assertEqual(tracks.album("l4-gateway"), "网关知识库")
         self.assertEqual(tracks.album("ai-gateway"), "网关知识库")
+        self.assertEqual(tracks.kicker("medical"), "MED PRACTICE")
+        self.assertEqual(tracks.column("medical"), "临床笔记")
+        self.assertEqual(tracks.album("medical"), "医学科普库")
 
     def test_ensure_frontmatter_track(self) -> None:
         md = '---\ntitle: "x"\n---\n# x\n'
@@ -83,6 +86,7 @@ class TrackRegistryTests(unittest.TestCase):
                 "dns.md": ("---\ntitle: x\n---\n", "DNS知识库"),
                 "l4.md": ("---\ntrack: l4-gateway\n---\n", "网关知识库"),
                 "ai.md": ("---\ntrack: ai-gateway\n---\n", "网关知识库"),
+                "med.md": ("---\ntrack: medical\n---\n", "医学科普库"),
             }
             for name, (text, expected) in cases.items():
                 path = _write(root, name, text)
@@ -200,5 +204,28 @@ class TrackHintTests(unittest.TestCase):
         import tracks as t
         self.assertEqual(t.suggest_track("LVS 用 FullNAT 转发，ECMP 分流"), "l4-gateway")
         self.assertEqual(t.suggest_track("模型路由和 TPM 限流都在 AI 网关里"), "ai-gateway")
+        self.assertEqual(t.suggest_track("门诊患者用药剂量和复查，指南有明确推荐"), "medical")
         self.assertEqual(t.suggest_track("DNS 解析到 VIP，users 很多"), "")
         self.assertEqual(t.suggest_track("只提了一次 LVS"), "")
+
+
+class CoverStyleTrackTests(unittest.TestCase):
+    def test_medical_cycle_starts_with_clinical_illustration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            result = subprocess.run(
+                [str(PYTHON), str(SCRIPTS / "next_cover_style.py"),
+                 "--track", "medical", "--history-root", str(Path(temp) / "missing")],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "临床插画")
+
+    def test_default_cycle_still_starts_with_guohua(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            result = subprocess.run(
+                [str(PYTHON), str(SCRIPTS / "next_cover_style.py"),
+                 "--history-root", str(Path(temp) / "missing")],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "水墨写意")

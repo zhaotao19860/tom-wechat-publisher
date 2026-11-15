@@ -22,6 +22,68 @@ ALLOWED_COVER_STYLES = {
     "文人画",
     "新中式国风",
 }
+# Medical covers are clinical illustrations, not guohua. Keeping the lists
+# separate prevents a medical article from silently reverting to a Chinese
+# painting cover (and vice versa).
+MEDICAL_COVER_STYLES = {
+    "临床插画",
+    "医学水彩",
+    "临床信息图",
+}
+def effective_track(data: dict) -> str:
+    raw = data.get("track")
+    value = raw.strip().lower() if isinstance(raw, str) else ""
+    return value or "dns"
+
+
+def allowed_cover_styles(track: str) -> set[str]:
+    return MEDICAL_COVER_STYLES if track == "medical" else ALLOWED_COVER_STYLES
+
+
+def poem_optional(track: str) -> bool:
+    return track == "medical"
+
+
+def cover_contract_errors(data: dict) -> list[str]:
+    """Validate cover metadata, with a track-aware style and poem contract.
+
+    Medical accounts use clinical illustration styles and may publish without
+    an inscription. Everything else keeps the historical guohua + poem rules.
+    """
+    errors: list[str] = []
+    track = effective_track(data)
+
+    generation = data.get("cover_generation", "")
+    if not isinstance(generation, str) or generation.strip().lower() != "ai":
+        errors.append("cover_generation must be 'ai'")
+
+    style = data.get("cover_style", "")
+    if not isinstance(style, str) or style.strip() not in allowed_cover_styles(track):
+        if track == "medical":
+            errors.append("cover_style must be an approved clinical illustration style")
+        else:
+            errors.append("cover_style must be an approved Chinese painting style")
+
+    poem = data.get("cover_poem", [])
+    if not isinstance(poem, list) or any(not str(line).strip() for line in poem):
+        errors.append("cover_poem must be a list of non-empty lines")
+    elif poem_optional(track):
+        if len(poem) not in {0, 2, 4}:
+            errors.append("cover_poem must be empty or contain 2 or 4 non-empty lines")
+    elif len(poem) not in {2, 4}:
+        errors.append("cover_poem must contain exactly 2 or 4 non-empty lines")
+
+    typography = data.get("cover_typography", "")
+    allowed_typography = {"vertical", "horizontal", "split"}
+    if poem_optional(track):
+        allowed_typography.add("none")
+    if isinstance(typography, str) and not typography.strip():
+        if not (poem_optional(track) and not poem):
+            errors.append("cover_typography must be vertical, horizontal, or split")
+    elif not isinstance(typography, str) or typography.strip() not in allowed_typography:
+        errors.append("cover_typography must be vertical, horizontal, or split")
+
+    return errors
 
 
 def is_remote(path: str) -> bool:
@@ -203,23 +265,9 @@ def main() -> int:
         raise ValueError("article title is required in frontmatter or --title")
     if not frontmatter.get("cover"):
         raise ValueError("cover image is required in frontmatter or --cover")
-    cover_generation = frontmatter.get("cover_generation", "")
-    cover_style = frontmatter.get("cover_style", "")
-    cover_poem = frontmatter.get("cover_poem", [])
-    cover_typography = frontmatter.get("cover_typography", "")
-    if not isinstance(cover_generation, str) or not isinstance(cover_style, str):
-        raise ValueError("cover generation and style metadata must be strings")
-    cover_generation = cover_generation.strip().lower()
-    cover_style = cover_style.strip()
-    if cover_generation != "ai":
-        raise ValueError("cover_generation must be 'ai'; HTML-rendered or stock covers are not allowed")
-    if cover_style not in ALLOWED_COVER_STYLES:
-        allowed = ", ".join(sorted(ALLOWED_COVER_STYLES))
-        raise ValueError(f"cover_style must be one approved Chinese painting style: {allowed}")
-    if not isinstance(cover_poem, list) or len(cover_poem) not in {2, 4} or any(not line.strip() for line in cover_poem):
-        raise ValueError("cover_poem must contain exactly 2 or 4 non-empty lines")
-    if not isinstance(cover_typography, str) or cover_typography.strip() not in {"vertical", "horizontal", "split"}:
-        raise ValueError("cover_typography must be vertical, horizontal, or split")
+    cover_errors = cover_contract_errors(frontmatter)
+    if cover_errors:
+        raise ValueError("; ".join(cover_errors))
 
     output.write_text(build_frontmatter(frontmatter) + body, encoding="utf-8")
     print(f"Prepared WeChat Markdown: {output}")

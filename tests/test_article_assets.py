@@ -138,6 +138,23 @@ cover_typography: 'horizontal'
         self.assertNotIn("prefer fewer", prompt)
         self.assertNotIn("two lines", prompt)
 
+    def test_medical_cover_prompt_is_text_free_without_inscription(self) -> None:
+        generate_article = load_script("generate_article.py")
+        spec = {
+            "kind": "cover",
+            "title_zh": "他汀的区别",
+            "track": "medical",
+            "cover_style": "临床插画",
+            "cover_text": [],
+            "text_policy": "cover-text-free",
+            "items": [],
+        }
+        prompt = generate_article._build_image_prompt(spec, "他汀的区别")
+        self.assertIn("clinical editorial illustration", prompt)
+        self.assertIn("Do not render any readable text inside the cover", prompt)
+        self.assertNotIn("derive an exact four-line", prompt)
+        self.assertNotIn("Chinese painting", prompt)
+
     def test_cover_prompt_preserves_legacy_two_line_poem(self) -> None:
         generate_article = load_script("generate_article.py")
         lines = ["旧名已散新名渡", "一纸回音半字讹"]
@@ -191,6 +208,61 @@ cover_typography: 'horizontal'
         with mock.patch.object(ocr, "run_ocr", return_value=["旧名已散新名渡"]):
             warnings, _ = ocr.validate(Path("unused.png"), spec)
         self.assertEqual(warnings, ["missing cover poem in OCR: expected '一纸回音半字讹'"])
+
+    def test_medical_cover_allows_no_poem_and_clinical_style(self) -> None:
+        validator = load_script("validate_article_assets.py")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "images").mkdir()
+            (root / "images" / "cover.png").write_bytes(b"png")
+            article = root / "article.md"
+            article.write_text(
+                """---
+title: '他汀的区别'
+track: medical
+cover: 'images/cover.png'
+cover_generation: 'ai'
+cover_style: '临床插画'
+cover_typography: 'none'
+---
+# 他汀的区别
+""",
+                encoding="utf-8",
+            )
+            self.assertEqual(validator.validate_article(article), [])
+
+    def test_medical_cover_accepts_two_line_optional_poem(self) -> None:
+        prepare = load_script("prepare_wechat_md.py")
+        errors = prepare.cover_contract_errors({
+            "track": "medical",
+            "cover_generation": "ai",
+            "cover_style": "医学水彩",
+            "cover_poem": ["春山七葉各分青", "同根一理異重輕"],
+            "cover_typography": "horizontal",
+        })
+        self.assertEqual(errors, [])
+
+    def test_medical_cover_rejects_guohua_style(self) -> None:
+        prepare = load_script("prepare_wechat_md.py")
+        errors = prepare.cover_contract_errors({
+            "track": "medical",
+            "cover_generation": "ai",
+            "cover_style": "宋画风",
+            "cover_typography": "none",
+        })
+        self.assertIn("cover_style", "\n".join(errors))
+
+    def test_technical_cover_rejects_clinical_style_and_missing_poem(self) -> None:
+        prepare = load_script("prepare_wechat_md.py")
+        errors = prepare.cover_contract_errors({
+            "track": "dns",
+            "cover_generation": "ai",
+            "cover_style": "临床插画",
+            "cover_typography": "none",
+        })
+        joined = "\n".join(errors)
+        self.assertIn("cover_style", joined)
+        self.assertIn("cover_poem", joined)
 
 
 if __name__ == "__main__":

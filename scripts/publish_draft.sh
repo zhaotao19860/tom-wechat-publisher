@@ -4,8 +4,8 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  publish_draft.sh article.md [--title "Title"] [--cover cover.jpg] [--author "Name"] [--theme theme] [--highlight theme] [--preview-themes] [--preview-dir DIR] [--no-open-preview] [--footnote] [--no-footnote] [--render-only] [--dry-run] [--keep-temp] [--theme-selection-confirmed] [--require-body-images] [--upload]
-  publish_draft.sh --generate-from SOURCE --topic "..." [--out-dir DIR] [--history-root DIR] [--topic-history-reviewed] [--allow-topic-repeat] [--search-query "..."] [--image-visual-theme THEME] [--image-theme-selection-confirmed] [--no-search] [--no-images] [--markdown] [--humanize] [--track dns|l4-gateway|ai-gateway]
+  publish_draft.sh article.md [--account PROFILE] [--title "Title"] [--cover cover.jpg] [--author "Name"] [--theme theme] [--highlight theme] [--preview-themes] [--preview-dir DIR] [--no-open-preview] [--footnote] [--no-footnote] [--render-only] [--dry-run] [--keep-temp] [--theme-selection-confirmed] [--require-body-images] [--upload]
+  publish_draft.sh --generate-from SOURCE --topic "..." [--account PROFILE] [--out-dir DIR] [--history-root DIR] [--topic-history-reviewed] [--allow-topic-repeat] [--search-query "..."] [--image-visual-theme THEME] [--image-theme-selection-confirmed] [--no-search] [--no-images] [--markdown] [--humanize] [--track dns|l4-gateway|ai-gateway|medical]
   publish_draft.sh --humanize article.md [--in-place] [--score] [--json]
 
 Generate mode (--generate-from):
@@ -14,13 +14,20 @@ Generate mode (--generate-from):
   image-heavy), generates illustrations via the /create-image workflow,
   then exits. If image generation fails, fix the prompt/article/backend and rerun;
   this wrapper does not switch to any alternate image backend.
-  --track writes the content track (dns, l4-gateway, ai-gateway) into the
-  generated frontmatter; omit it for DNS articles.
+  --track writes the content track (dns, l4-gateway, ai-gateway, medical) into
+  the generated frontmatter; omit it for DNS articles.
+
+Account profiles (--account):
+  Profiles live in accounts/<name>.json and isolate AppID/AppSecret variable
+  names, author, default theme, history root, album and footer per official
+  account. No profile means the built-in default account, so existing DNS and
+  gateway workflows are unchanged. `--account medical` selects the independent
+  medical account configured in accounts/medical.json.
 
 Content tracks:
   The frontmatter `track:` field picks the WeChat album to choose by hand when
   publishing (the draft API cannot set albums). Missing or unknown means dns.
-  dns -> DNS知识库; l4-gateway and ai-gateway -> 网关知识库.
+  dns -> DNS知识库; l4-gateway and ai-gateway -> 网关知识库; medical -> 医学科普库.
 
 Humanize mode (--humanize):
   Strips AI-writing tells (24-pattern catalog from op7418/Humanizer-zh +
@@ -32,9 +39,12 @@ Humanize mode (--humanize):
 
 Environment:
   Wenyan owns WeChat credentials and account selection. Configure them with
-  `wenyan credential` or   WECHAT_APP_ID / WECHAT_APP_SECRET. WECHAT_APP_ID is required for uploads.
-  WECHAT_AUTHOR       optional author override; defaults to 赵涛
-  WECHAT_THEME        optional default theme; defaults to dns-daily
+  `wenyan credential` or the profile's AppID/AppSecret environment variables
+  (default: WECHAT_APP_ID / WECHAT_APP_SECRET; medical: WECHAT_MEDICAL_APP_ID /
+  WECHAT_MEDICAL_APP_SECRET). The AppID is required for uploads.
+  TOM_WECHAT_ACCOUNT  optional default account profile; defaults to `default`
+  WECHAT_AUTHOR       optional author override; defaults to the profile author
+  WECHAT_THEME        optional default theme; defaults to the profile theme
   WECHAT_HIGHLIGHT    optional default code highlight theme
   TOM_WECHAT_IMAGE_VISUAL_THEME  required for illustrated generate mode unless --no-images
   COMATE_USERNAME_ENCRYPTED      optional for /create-image; auto-derived from ~/.comate/login-user when missing
@@ -54,7 +64,10 @@ USAGE
 # The draft API cannot set an album, so remind the operator which one to pick.
 print_album_reminder() {
   local album_name
-  album_name="$("$PYTHON" "$script_dir/tracks.py" album "$1" 2>/dev/null || true)"
+  album_name="${profile_album:-}"
+  if [[ -z "$album_name" ]]; then
+    album_name="$("$PYTHON" "$script_dir/tracks.py" album "$1" 2>/dev/null || true)"
+  fi
   printf 'Album reminder: 发表时请在后台选择合集「%s」（漏选的话 X 推广和多平台同步当天取不到链接）\n' "${album_name:-DNS知识库}"
   "$PYTHON" "$script_dir/tracks.py" hint "$1" 2>/dev/null || true
 }
@@ -131,7 +144,18 @@ fi
 article=""
 title=""
 cover=""
+account_profile="${TOM_WECHAT_ACCOUNT:-default}"
+profile_album=""
+profile_footer_image=""
+profile_app_id_env="WECHAT_APP_ID"
+profile_app_secret_env="WECHAT_APP_SECRET"
+profile_keychain_service="tom-wechat-publisher"
+author_from_env=0
+[[ -n "${WECHAT_AUTHOR:-}" ]] && author_from_env=1
+author_explicit=0
 author="${WECHAT_AUTHOR:-赵涛}"
+theme_from_env=0
+[[ -n "${WECHAT_THEME:-}" ]] && theme_from_env=1
 theme="${WECHAT_THEME:-dns-daily}"
 theme_explicit=0
 highlight="${WECHAT_HIGHLIGHT:-solarized-light}"
@@ -159,12 +183,18 @@ generate_no_search=0
 generate_no_images=0
 generate_markdown=0
 generate_humanize=1  # default ON at end of --generate-from
+history_root_from_env=0
+[[ -n "${TOM_WECHAT_HISTORY_ROOT:-}" ]] && history_root_from_env=1
+history_explicit=0
 generate_history_root="${TOM_WECHAT_HISTORY_ROOT:-$HOME/Desktop/wechat}"
 topic_history_reviewed=0
 allow_topic_repeat=0
 image_visual_theme="${TOM_WECHAT_IMAGE_VISUAL_THEME:-}"
+image_theme_from_env=0
+[[ -n "${TOM_WECHAT_IMAGE_VISUAL_THEME:-}" ]] && image_theme_from_env=1
 image_theme_selection_confirmed=0
 generate_track=""
+track_explicit=0
 
 # Humanize-mode state
 humanize_path=""
@@ -178,6 +208,14 @@ while [[ $# -gt 0 ]]; do
       usage
       exit 0
       ;;
+    --account)
+      account_profile="${2:-}"
+      if [[ -z "$account_profile" ]]; then
+        echo "ERROR: --account requires a profile name" >&2
+        exit 2
+      fi
+      shift 2
+      ;;
     --title)
       title="${2:-}"
       shift 2
@@ -188,6 +226,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --author)
       author="${2:-}"
+      author_explicit=1
       shift 2
       ;;
     --theme)
@@ -268,12 +307,13 @@ while [[ $# -gt 0 ]]; do
     --track)
       generate_track="${2:-}"
       case "$generate_track" in
-        dns|l4-gateway|ai-gateway) ;;
+        dns|l4-gateway|ai-gateway|medical) ;;
         *)
-          echo "ERROR: --track must be one of dns, l4-gateway, ai-gateway" >&2
+          echo "ERROR: --track must be one of dns, l4-gateway, ai-gateway, medical" >&2
           exit 2
           ;;
       esac
+      track_explicit=1
       shift 2
       ;;
     --topic)
@@ -282,6 +322,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --history-root)
       generate_history_root="${2:-}"
+      history_explicit=1
       shift 2
       ;;
     --topic-history-reviewed)
@@ -392,6 +433,46 @@ resolve_check_prose() {
 
 PYTHON="$(resolve_python)"
 
+# ---- account profile -------------------------------------------------------
+# Profiles are resolved after argument parsing so --account can appear anywhere.
+# The default profile keeps every historical environment default untouched.
+if [[ "$account_profile" != "default" ]]; then
+  if ! profile_output="$("$PYTHON" "$script_dir/account_profile.py" shell --profile "$account_profile")"; then
+    echo "ERROR: cannot load account profile: $account_profile" >&2
+    exit 2
+  fi
+  eval "$profile_output"
+  profile_album="${PROFILE_ALBUM:-}"
+  profile_footer_image="${PROFILE_FOOTER_IMAGE:-}"
+  profile_app_id_env="${PROFILE_APP_ID_ENV:-WECHAT_APP_ID}"
+  profile_app_secret_env="${PROFILE_APP_SECRET_ENV:-WECHAT_APP_SECRET}"
+  profile_keychain_service="${PROFILE_KEYCHAIN_SERVICE:-tom-wechat-publisher}"
+  if [[ "$author_explicit" -eq 0 && "$author_from_env" -eq 0 && -n "${PROFILE_AUTHOR:-}" ]]; then
+    author="$PROFILE_AUTHOR"
+  fi
+  if [[ "$theme_explicit" -eq 0 && "$theme_from_env" -eq 0 && -n "${PROFILE_THEME:-}" ]]; then
+    theme="$PROFILE_THEME"
+  fi
+  if [[ "$history_explicit" -eq 0 && "$history_root_from_env" -eq 0 && -n "${PROFILE_HISTORY_ROOT:-}" ]]; then
+    generate_history_root="$PROFILE_HISTORY_ROOT"
+  fi
+  if [[ "$track_explicit" -eq 0 && -n "${PROFILE_TRACK:-}" ]]; then
+    generate_track="$PROFILE_TRACK"
+  fi
+  if [[ "$image_theme_from_env" -eq 0 && -z "$image_visual_theme" && -n "${PROFILE_IMAGE_VISUAL_THEME:-}" ]]; then
+    image_visual_theme="$PROFILE_IMAGE_VISUAL_THEME"
+  fi
+  if [[ -n "${PROFILE_PREVIEW_THEMES:-}" && -z "${TOM_WECHAT_PREVIEW_THEMES:-}" ]]; then
+    TOM_WECHAT_PREVIEW_THEMES="$PROFILE_PREVIEW_THEMES"
+    read -r -a profile_preview_theme_ids <<< "$PROFILE_PREVIEW_THEMES"
+    if [[ ${#profile_preview_theme_ids[@]} -gt 0 && -z "${TOM_WECHAT_PREVIEW_THEME_COUNT:-}" ]]; then
+      TOM_WECHAT_PREVIEW_THEME_COUNT="${#profile_preview_theme_ids[@]}"
+    fi
+  fi
+  printf 'Account profile: %s (%s), theme=%s, author=%s\n' \
+    "${PROFILE_DISPLAY_NAME:-$account_profile}" "$account_profile" "$theme" "$author" >&2
+fi
+
 # ---- humanize mode ---------------------------------------------------------
 if [[ -n "$humanize_path" ]]; then
   humanize_cmd=("$PYTHON" "$script_dir/humanize_article.py" "$humanize_path")
@@ -419,8 +500,18 @@ if [[ -n "$generate_from" ]]; then
     echo "ERROR: --generate-from requires --topic so historical topic reuse can be checked before writing" >&2
     exit 2
   fi
-  if [[ -z "$generate_history_root" || ! -d "$generate_history_root" ]]; then
-    echo "ERROR: topic history root is not a directory: ${generate_history_root:-<empty>}" >&2
+  if [[ -z "$generate_history_root" ]]; then
+    echo "ERROR: topic history root is empty" >&2
+    exit 2
+  fi
+  if [[ ! -d "$generate_history_root" && "$account_profile" != "default" ]]; then
+    # A dedicated account gets its own history root so topic de-duplication
+    # never mixes the medical audience with the technical audience.
+    mkdir -p "$generate_history_root"
+    printf 'Created account history root: %s\n' "$generate_history_root" >&2
+  fi
+  if [[ ! -d "$generate_history_root" ]]; then
+    echo "ERROR: topic history root is not a directory: $generate_history_root" >&2
     exit 2
   fi
   date_prefix="$(date +%Y-%m%d)"
@@ -546,7 +637,11 @@ if [[ "$require_body_images" -eq 1 ]]; then
     exit 2
   fi
   wechat_failure_context="body-image-preflight: ${article}"
-  "$PYTHON" "$script_dir/validate_body_images.py" "$article" --spec "$image_specs" --min 3 >&2
+  body_preflight_cmd=("$PYTHON" "$script_dir/validate_body_images.py" "$article" --spec "$image_specs" --min 3)
+  if [[ -n "$profile_footer_image" ]]; then
+    body_preflight_cmd+=(--footer "$profile_footer_image")
+  fi
+  "${body_preflight_cmd[@]}" >&2
 fi
 
 if ! check_prose_script="$(resolve_check_prose)"; then
@@ -602,7 +697,10 @@ if [[ "$preview_themes" -eq 1 ]]; then
 import os
 
 fallback_themes = ["dns-elegant-purple", "dns-aurora-cyan", "dns-warm-orange", "dns-ocean", "dns-sakura"]
-themes = fallback_themes
+configured = [theme.strip() for theme in os.environ.get("TOM_WECHAT_PREVIEW_THEMES", "").replace(",", " ").split() if theme.strip()]
+# Account profiles may register themes that are not in the DNS fallback list
+# (for example med-clinical). Accept them as valid candidates.
+themes = fallback_themes + [theme for theme in configured if theme not in fallback_themes]
 
 preferred_themes = [
     # More expressive editorial themes first. The older simple themes remain
@@ -620,7 +718,6 @@ preferred_themes = [
     "dns-ink-minimal",
     "dns-daily",
 ]
-configured = [theme.strip() for theme in os.environ.get("TOM_WECHAT_PREVIEW_THEMES", "").replace(",", " ").split() if theme.strip()]
 try:
     count = int(os.environ.get("TOM_WECHAT_PREVIEW_THEME_COUNT", "5"))
 except ValueError:
@@ -688,21 +785,22 @@ if [[ "$dry_run" -eq 1 || "$render_only" -eq 1 || "$upload" -eq 0 ]]; then
   print_album_reminder "$article"
   exit 0
 fi
-wechat_app_id="${WECHAT_APP_ID:-}"
-wechat_app_secret="${WECHAT_APP_SECRET:-}"
+wechat_app_id="${!profile_app_id_env:-}"
+wechat_app_secret="${!profile_app_secret_env:-}"
 if [[ -z "$wechat_app_secret" ]]; then
   if ! command -v security >/dev/null 2>&1; then
-    echo "ERROR: WECHAT_APP_SECRET is unset and macOS Keychain is unavailable." >&2
+    echo "ERROR: ${profile_app_secret_env} is unset and macOS Keychain is unavailable." >&2
     exit 2
   fi
-  wechat_app_secret="$(security find-generic-password -s tom-wechat-publisher -a "$wechat_app_id" -w 2>/dev/null || true)"
+  wechat_app_secret="$(security find-generic-password -s "$profile_keychain_service" -a "$wechat_app_id" -w 2>/dev/null || true)"
 fi
 if [[ -z "$wechat_app_id" || -z "$wechat_app_secret" ]]; then
-  echo "ERROR: WeChat AppID/AppSecret not found in environment or Keychain." >&2
+  echo "ERROR: ${profile_app_id_env}/${profile_app_secret_env} not found in environment or Keychain (service: ${profile_keychain_service})." >&2
   exit 2
 fi
 masked_wechat_app_id="$(mask_app_id "$wechat_app_id")"
-printf 'Target WeChat AppID: %s\n' "$masked_wechat_app_id"
+printf 'Target account: %s (%s)\n' "${PROFILE_DISPLAY_NAME:-default}" "$account_profile"
+printf 'Target WeChat AppID: %s (from %s)\n' "$masked_wechat_app_id" "$profile_app_id_env"
 upload_cmd=(env WECHAT_APP_ID="$wechat_app_id" WECHAT_APP_SECRET="$wechat_app_secret" wenyan publish --file "$prepared_file" --custom-theme "$theme_file" --highlight "$highlight")
 if [[ "$footnote" -eq 0 ]]; then
   upload_cmd+=(--no-footnote)

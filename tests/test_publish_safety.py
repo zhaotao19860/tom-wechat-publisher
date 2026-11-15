@@ -47,6 +47,7 @@ class PublishSafetyTests(unittest.TestCase):
         wenyan_leak_secret: bool = False,
         wenyan_leak_app_id: bool = False,
         notify_capture: bool = False,
+        env_extra: dict[str, str] | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], WrapperFixture]:
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -74,6 +75,11 @@ class PublishSafetyTests(unittest.TestCase):
             encoding="utf-8",
         )
         wenyan.chmod(0o755)
+        # The wrapper checks for macOS sips even when every asset is already PNG.
+        # A no-op stub keeps the safety tests portable to Linux CI.
+        sips = bin_dir / "sips"
+        sips.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        sips.chmod(0o755)
         checker = root / "check_prose.py"
         checker.write_text(
             "import os\n"
@@ -114,6 +120,8 @@ class PublishSafetyTests(unittest.TestCase):
         env["WENYAN_PUBLISH_OUTPUT"] = wenyan_publish_output
         env["WENYAN_LEAK_SECRET"] = "1" if wenyan_leak_secret else "0"
         env["WENYAN_LEAK_APP_ID"] = "1" if wenyan_leak_app_id else "0"
+        if env_extra:
+            env.update(env_extra)
         if notify_capture:
             home = root / "home"
             infoflow = home / ".comate/skills/infoflow-message-group/scripts"
@@ -263,6 +271,28 @@ class PublishSafetyTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(marker.exists(), result.stderr)
+
+    def test_medical_account_uses_isolated_credentials_and_album(self) -> None:
+        result, fixture = self.run_wrapper_with_fakes(
+            upload=True,
+            extra_args=("--account", "medical", "--theme", "med-clinical"),
+            env_extra={
+                "WECHAT_MEDICAL_APP_ID": "med-app-id",
+                "WECHAT_MEDICAL_APP_SECRET": "med-app-secret",
+            },
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Account profile: 医学号 (medical)", result.stderr)
+        self.assertIn("Target account: 医学号 (medical)", result.stdout)
+        self.assertIn("Target WeChat AppID: med-...p-id", result.stdout)
+        self.assertIn("医学科普库", result.stdout)
+        self.assertNotIn("med-app-secret", result.stdout + result.stderr)
+        publish = next(
+            line for line in fixture.wenyan_log.read_text(encoding="utf-8").splitlines()
+            if line.startswith("publish ")
+        )
+        self.assertIn("med-clinical", publish)
 
 
 if __name__ == "__main__":

@@ -113,6 +113,7 @@ ALLOWED_IMAGE_VISUAL_THEMES = {
     "data-infographic",
     "whiteboard-sketch",
     "warm-narrative",
+    "clinical-illustration",
 }
 
 # Per-slot AI retries on top of the inner CREATE_IMAGE_ATTEMPTS loop. Each retry
@@ -695,10 +696,30 @@ def _derive_article_title(facts: list[str], topic_hint: str, source_text: str) -
     return clean_hint[:60] if clean_hint else "一篇技术文章"
 
 
-def default_plan_for_generic_article(facts: list[str], topic_hint: str, source_text: str) -> ArticlePlan:
+def default_plan_for_generic_article(
+    facts: list[str], topic_hint: str, source_text: str, track: str = ""
+) -> ArticlePlan:
     """Compose an article-aware plan that adapts to the current source content."""
     title = _derive_article_title(facts, topic_hint, source_text)
     context = _context_summary(facts, title, source_text)
+    if track.strip().lower() == MEDICAL_TRACK:
+        subtitle = "门诊常问 · 看图就懂 · 不替代面诊"
+        cover_prompt = _image_prompt(
+            context,
+            "calm clinical editorial illustration of the article's central patient question",
+            [title[:12], "患者问题", "处理原则", "就医提示"],
+            "one clear everyday-care metaphor, anonymous figures, generous negative space, no readable text",
+        )
+        sections = [
+            {"kind": "body", "title": "门诊常问", "intro": "先把最常被问到的那句话和结论放在前面。", "filename": "img_medical_summary.png", "prompt": "", "aspect": "16:9"},
+            {"kind": "body", "title": "这是怎么回事", "intro": "把机制讲到能听懂，不堆术语。", "filename": "img_medical_mechanism.png", "prompt": "", "aspect": "16:9"},
+            {"kind": "body", "title": "哪些人需要留意", "intro": "分清适用人群、需要谨慎的情况和真正危险的情况。", "filename": "img_medical_caution.png", "prompt": "", "aspect": "16:9"},
+            {"kind": "body", "title": "日常怎么处理", "intro": "把能执行的动作写清楚，剂量和复查以指南与说明书为准。", "filename": "img_medical_care.png", "prompt": "", "aspect": "16:9"},
+            {"kind": "body", "title": "什么情况要就医", "intro": "把需要及时就诊的信号单独列出来。", "filename": "img_medical_redflags.png", "prompt": "", "aspect": "16:9"},
+            {"kind": "body", "title": "常见误区", "intro": "把最容易误解的几件事逐条说清。", "filename": "img_medical_myths.png", "prompt": "", "aspect": "16:9"},
+        ]
+        return ArticlePlan(title=title, subtitle=subtitle, cover_prompt=cover_prompt, cover_filename="cover_medical.png", sections=sections)
+
     subtitle = "5 分钟看懂 · 图多字少 · 适合技术读者快速建立判断"
     cover_prompt = _image_prompt(
         context,
@@ -717,8 +738,8 @@ def default_plan_for_generic_article(facts: list[str], topic_hint: str, source_t
     return ArticlePlan(title=title, subtitle=subtitle, cover_prompt=cover_prompt, cover_filename="cover_article.png", sections=sections)
 
 
-def choose_article_plan(facts: list[str], topic_hint: str, source_text: str) -> ArticlePlan:
-    return default_plan_for_generic_article(facts, topic_hint, source_text)
+def choose_article_plan(facts: list[str], topic_hint: str, source_text: str, track: str = "") -> ArticlePlan:
+    return default_plan_for_generic_article(facts, topic_hint, source_text, track)
 
 
 def _source_line(sources: list[dict], source_label: str = "") -> str:
@@ -1049,8 +1070,9 @@ def _render_blocklist_markdown(plan: ArticlePlan, facts: list[str], sources: lis
     return "\n".join(parts)
 
 
-def render_markdown(plan: ArticlePlan, facts: list[str], sources: list[dict], source_text: str = "", topic_hint: str = "", source_label: str = "") -> str:
+def render_markdown(plan: ArticlePlan, facts: list[str], sources: list[dict], source_text: str = "", topic_hint: str = "", source_label: str = "", track: str = "") -> str:
     """Render the plan into a complete WeChat-friendly Markdown file."""
+    is_medical = track.strip().lower() == MEDICAL_TRACK
     dmarc_np_profile = _extract_dmarc_np_profile(source_text, facts, topic_hint)
     if dmarc_np_profile:
         return _render_dmarc_np_markdown(plan, facts, sources, dmarc_np_profile, source_label)
@@ -1082,8 +1104,13 @@ def render_markdown(plan: ArticlePlan, facts: list[str], sources: list[dict], so
     parts: list[str] = []
     parts.extend(["---", f'title: "{plan.title}"', 'author: "赵涛"', f'cover: "{cover_name}"', "---", ""])
     parts.extend([f"# {plan.title}", "", f"![封面]({cover_name})", "", f"> {plan.subtitle}", ""])
-    parts.extend(["## 一分钟看懂", "", f"![一分钟看懂]({plan.sections[0]['filename']})", ""])
-    summary_labels = ["核心变化", "影响对象", "风险重点", "现在动作", "后续观察"]
+    summary_title = plan.sections[0]["title"]
+    parts.extend([f"## {summary_title}", "", f"![{summary_title}]({plan.sections[0]['filename']})", ""])
+    summary_labels = (
+        ["核心要点", "适用人群", "需要留意", "处理原则", "就医提示"]
+        if is_medical
+        else ["核心变化", "影响对象", "风险重点", "现在动作", "后续观察"]
+    )
     for label, fact in zip(summary_labels, fact_lines[:5]):
         parts.append(f"- {label}：{fact}。")
     parts.append("")
@@ -1091,7 +1118,19 @@ def render_markdown(plan: ArticlePlan, facts: list[str], sources: list[dict], so
         primary = _pick_fact(fact_lines, idx, "先把源文里的核心变化和影响范围核对清楚")
         secondary = _pick_fact(fact_lines, idx + 2, "再决定是否需要排期、升级、沟通或持续观察")
         parts.extend([f"## {sec['title']}", "", sec["intro"], "", f"![{sec['title']}]({sec['filename']})", ""])
-        if "做什么" in sec["title"] or "行动" in sec["title"] or "建议" in sec["title"]:
+        if is_medical:
+            parts.append(f"这一节先把要点说清：{primary}。")
+            parts.append("")
+            parts.append(f"需要结合自己的情况判断的是：{secondary}。具体用药、剂量和检查项目，以面诊医生的评估为准。")
+            parts.append("")
+            if "就医" in sec["title"]:
+                parts.append("出现持续或加重的不适，尤其是说不清原因的肌肉酸痛、无力、尿色变深、胸闷气短或意识改变，及时到门诊或急诊评估，不要等到下次复查。")
+                parts.append("")
+            elif "处理" in sec["title"]:
+                for n, detail in enumerate(("按医嘱用药，不自行加减量。", "把正在吃的药和保健品列一张清单。", "按约定时间复查。", "出现不适及时记录并反馈。"), start=1):
+                    parts.append(f"{n}. {detail}")
+                    parts.append("")
+        elif "做什么" in sec["title"] or "行动" in sec["title"] or "建议" in sec["title"]:
             actions = [
                 ("核对事实", primary),
                 ("缩小范围", secondary),
@@ -1110,7 +1149,19 @@ def render_markdown(plan: ArticlePlan, facts: list[str], sources: list[dict], so
             parts.append("")
             parts.append(f"接下来要关注的是：{secondary}。如果它和自己的业务、资产或运维链路有关，就需要提前留出处理窗口。")
             parts.append("")
-    parts.extend(["## 一句话总结", "", f"{topic_name} 这件事不用放大，也别忽略：先看事实，再看影响范围，最后落到今天能执行的动作。", "", "## 参考资料", "", source_lines, ""])
+    if is_medical:
+        parts.extend([
+            "## 最后提醒",
+            "",
+            f"这篇讲的是{topic_name}的一般原则，不能替代面诊。具体用药、剂量和检查，以医生当面评估为准。",
+            "",
+            "## 参考资料",
+            "",
+            source_lines,
+            "",
+        ])
+    else:
+        parts.extend(["## 一句话总结", "", f"{topic_name} 这件事不用放大，也别忽略：先看事实，再看影响范围，最后落到今天能执行的动作。", "", "## 参考资料", "", source_lines, ""])
     return "\n".join(parts)
 
 
@@ -1642,6 +1693,10 @@ def _resolve_style_palette(visual_type: str, title: str = "") -> tuple[str, str,
             "Airbnb brand presentation meets Mailchimp editorial — approachable, human, warm",
             "warm cream, coral accent, charcoal",
         ),
+        "clinical-illustration": (
+            "Contemporary clinical editorial illustration — calm, precise, humane, not decorative",
+            "muted teal, sage green, warm neutral paper, one soft coral accent",
+        ),
     }
     style, palette = theme_palettes.get(theme, theme_palettes["clean-professional"])
     role_composition = {
@@ -1891,12 +1946,69 @@ CONSTRAINTS
 """.strip() + "\n"
 
 
+MEDICAL_TRACK = "medical"
+CLINICAL_COVER_STYLES = {"临床插画", "医学水彩", "临床信息图"}
+CLINICAL_VISUAL_THEME = "clinical-illustration"
+
+
+def _is_medical_spec(spec: dict) -> bool:
+    """True when this spec belongs to the medical account/visual language."""
+    return (
+        str(spec.get("track") or "").strip().lower() == MEDICAL_TRACK
+        or str(spec.get("cover_style") or "").strip() in CLINICAL_COVER_STYLES
+        or IMAGE_VISUAL_THEME == CLINICAL_VISUAL_THEME
+    )
+
+
 def _is_ian_low_risk_body(spec: dict) -> bool:
     return (
-        str(spec.get("kind") or "") != "cover"
+        not _is_medical_spec(spec)
+        and str(spec.get("kind") or "") != "cover"
         and str(spec.get("render_mode") or "").strip().lower() == "ai"
         and str(spec.get("fact_risk") or "").strip().lower() == "low"
     )
+
+
+def _clinical_body_prompt(
+    *,
+    spec: dict,
+    article_title: str,
+    title: str,
+    visual_type: str,
+) -> str:
+    """A calm clinical editorial illustration, text-free and non-diagnostic."""
+    return f"""# WeChat Body Image Prompt - Clinical Editorial Illustration
+
+metadata:
+  backend: clinical-illustration/create-image
+  type: {visual_type}
+  style: contemporary clinical editorial illustration
+  palette: muted teal, sage green, warm neutral paper, one soft coral accent
+  aspect: 16:9
+  fact_risk: low
+  text_mode: text-free
+
+Generate one standalone 16:9 horizontal clinical editorial illustration for a Chinese medical-education article.
+
+ARTICLE CONTEXT
+- Article: {article_title}
+- Section: {title}
+- Reader purpose: {spec.get('purpose') or spec.get('notes') or spec.get('source_section')}
+- Visual type: {visual_type}
+
+VISUAL LANGUAGE
+Restrained line-and-wash or flat vector illustration with a humane, precise, calm tone. Generous negative space, soft natural light, one clear everyday-care or clinical metaphor. Use ordinary objects such as a pill organizer, home blood-pressure cuff, blank lab slip, appointment chair, walking aid, or a clinician listening to a patient. If people appear, show them anonymous and non-identifiable: no recognizable face, name badge, wristband, hospital logo, or patient file. Keep anatomy stylized and non-diagnostic; never present an illustration as a diagnostic image.
+
+CONTENT MAPPING
+{spec.get('notes') or spec.get('source_section') or title}
+Translate the section's idea into one concrete scene or object relationship. Do not attempt to render a drug table, dose ladder, anatomy cutaway, or mechanism diagram in AI pixels; those belong to deterministic diagrams elsewhere in the article.
+
+TEXT
+Do not render any readable text. No Chinese, no English words, no drug names, no doses, no lab values, no numbers, no UI labels, no URLs, no watermark, no fake logo.
+
+CONSTRAINTS
+No cartoon mascot, no 小黑, no cute character, no gore, no surgery close-up, no identifiable patient, no hospital brand, no dense infographic, no poster frame, no decorative network wallpaper, no cyber style, no photo-realistic screenshot.
+""".strip() + "\n"
 
 
 def _ian_xiaohei_body_prompt(
@@ -2018,6 +2130,14 @@ def _build_image_prompt(spec: dict, article_title: str) -> str:
             )
         item_details = "\n".join(item_details_lines)
 
+    if _is_medical_spec(spec) and kind != "cover":
+        return _clinical_body_prompt(
+            spec=spec,
+            article_title=article_title,
+            title=title,
+            visual_type=visual_type,
+        )
+
     if _is_ian_low_risk_body(spec):
         return _ian_xiaohei_body_prompt(
             spec=spec,
@@ -2029,10 +2149,30 @@ def _build_image_prompt(spec: dict, article_title: str) -> str:
         )
 
     if kind == "cover":
-        poem_instruction = cover_poem_block or "derive an exact four-line Chinese quatrain from the article title and section notes"
-        poem_line_count = len(cover_poem) or 4
-        poem_line_count_text = {2: "two", 4: "four"}.get(poem_line_count, str(poem_line_count))
-        text_policy_block = f"""TEXT POLICY (cover poem calligraphy)
+        if _is_medical_spec(spec):
+            if cover_poem:
+                poem_line_count = len(cover_poem)
+                poem_line_count_text = {2: "two", 4: "four"}.get(poem_line_count, str(poem_line_count))
+                text_policy_block = f"""TEXT POLICY (optional cover inscription)
+Render exactly {poem_line_count_text} lines of this short Chinese inscription from the current article:
+{cover_poem_block}
+
+Rules:
+- Use an understated, legible printed or semi-brush Chinese style. This is an optional inscription on a clinical illustration, not a guohua poem.
+- Place it in a calm corner or side margin inside the center safe zone.
+- Keep characters large and sparse on a phone screen; no other readable text, English words, numbers, drug names, doses, URLs, UI labels, fake stamps, or captions.
+- If any character is unclear, repair it without omitting, merging, duplicating, or replacing a line."""
+            else:
+                text_policy_block = """TEXT POLICY
+Do not render any readable text inside the cover. No Chinese, no English words, no numbers, no drug names, no doses, no UI labels, no URLs, no watermarks, no fake stamps.
+Let the illustration carry the idea; the article title is supplied outside the image."""
+            cover_text_block = """COVER-SPECIFIC STYLE
+Prioritize a clean clinical editorial illustration: restrained line-and-wash or flat vector drawing, calm natural light, muted teal/sage/warm-neutral palette, one clear medical or everyday-care metaphor, generous negative space, and a premium magazine cover composition. Show people as anonymous, non-identifiable figures if people are needed. Avoid gore, surgery close-ups, diagnostic imagery presented as fact, identifiable patients, hospital brand marks, guohua mountains/poems, modern SaaS dashboards, cyber wallpaper, and decorative network backgrounds."""
+        else:
+            poem_instruction = cover_poem_block or "derive an exact four-line Chinese quatrain from the article title and section notes"
+            poem_line_count = len(cover_poem) or 4
+            poem_line_count_text = {2: "two", 4: "four"}.get(poem_line_count, str(poem_line_count))
+            text_policy_block = f"""TEXT POLICY (cover poem calligraphy)
 Render exactly {poem_line_count_text} lines of this short Chinese poem from the current article:
 {poem_instruction}
 
@@ -2042,7 +2182,7 @@ Rules:
 - Keep characters large, sparse, and legible on a phone screen; avoid tiny body text.
 - Do not add any other readable text, English words, numbers, URLs, UI labels, fake stamps, or invented captions.
 - If any character is unclear, repair it without omitting, merging, duplicating, or replacing a line."""
-        cover_text_block = """COVER-SPECIFIC STYLE
+            cover_text_block = """COVER-SPECIFIC STYLE
 Prioritize AI-generated cover art in Chinese painting style: ink wash, xuan paper texture, mineral color accents, negative space, mist, mountains/water/bamboo/plum/pavilion metaphors, and a refined editorial WeChat cover composition. Avoid modern SaaS cards, dashboards, cyber wallpaper, UI panels, and decorative network backgrounds on the cover."""
     elif allow_text:
         whitelist_block = ", ".join(f'"{chip}"' for chip in whitelist)
@@ -3136,11 +3276,14 @@ def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> d
             shutil.copy2(ai_path, final_path)
             produced[filename] = final_path
             source = ai_source
-            spec_obj.rendered_by = (
-                "ian-xiaohei-illustrations/create-image"
-                if _is_ian_low_risk_body(spec)
-                else source
-            )
+            if _is_medical_spec(spec) and str(spec.get("kind") or "") != "cover":
+                spec_obj.rendered_by = "clinical-illustration/create-image"
+            else:
+                spec_obj.rendered_by = (
+                    "ian-xiaohei-illustrations/create-image"
+                    if _is_ian_low_risk_body(spec)
+                    else source
+                )
             spec_obj.overlay_applied = "html text overlay" in source
 
             if idx == 0:
@@ -3264,7 +3407,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--track",
         default="",
-        help="Content track written to frontmatter: dns (default), l4-gateway, ai-gateway",
+        help="Content track written to frontmatter: dns (default), l4-gateway, ai-gateway, medical",
     )
     return p.parse_args()
 
@@ -3305,12 +3448,12 @@ def main() -> int:
         and re.search(r"^##\s+", text, flags=re.M)
     )
 
-    plan = choose_article_plan(facts, topic, text)
+    plan = choose_article_plan(facts, topic, text, args.track)
     if preserve_source_markdown:
         markdown = text
         print("[generate-article:markdown] preserving finalized source markdown; generating images only", file=sys.stderr)
     else:
-        markdown = render_markdown(plan, facts, sources, source_text=text, topic_hint=topic, source_label=label)
+        markdown = render_markdown(plan, facts, sources, source_text=text, topic_hint=topic, source_label=label, track=args.track)
         build_image_prompts_from_markdown(plan, markdown)
 
     markdown = _apply_track(markdown, args.track)
@@ -3332,7 +3475,7 @@ def main() -> int:
             md_path.write_text(markdown, encoding="utf-8")
             print(f"[generate-article:write] markdown preserved (final) -> {md_path}", file=sys.stderr)
         else:
-            markdown = render_markdown(plan, facts, sources, source_text=text, topic_hint=topic, source_label=label)
+            markdown = render_markdown(plan, facts, sources, source_text=text, topic_hint=topic, source_label=label, track=args.track)
             markdown = _apply_track(markdown, args.track)
             validate_article_ready(markdown)
             md_path.write_text(markdown, encoding="utf-8")

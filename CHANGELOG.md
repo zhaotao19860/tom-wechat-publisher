@@ -2,6 +2,23 @@
 
 本文件记录 `tom-wechat-publisher` 的重要能力变更。
 
+## 2026-11-15
+
+### 新增
+
+- 多账号 profile：新增 `scripts/account_profile.py` 和 `accounts/medical.json`。`publish_draft.sh --account medical` 会按账号解析 AppID/AppSecret 环境变量名、Keychain 服务、作者、默认主题、历史根目录、合集、页脚和默认内容线；上传前打印 `Target account` 和掩码 AppID。不带 `--account` 时技术号行为不变。
+- 内容线 `medical`：眉标 `MED PRACTICE`、栏目「临床笔记」、合集「医学科普库」，并加入疾病、药物、剂量、指南等术语，供配图标签提取。
+- 医学号视觉：封面支持临床插画、医学水彩、临床信息图，题诗可选且不自动生成；正文首图改用临床插画，不再使用小黑卡通；确定性信息图的英文眉标在医学号下改为中文。
+- 新增 `assets/med-clinical.css`、`assets/med-warm-paper.css`、`assets/med-quiet-blue.css` 三套正文主题。
+- `next_cover_style.py` 新增 `--track medical`，医学号按临床插画风格轮换。
+- `generate_article.py` 在 `--track medical` 时使用门诊结构（门诊常问、机制、需要留意的人、日常处理、就医提示、常见误区）和临床插画提示词。
+
+### 改进
+
+- `prepare_wechat_md.py` 和 `validate_article_assets.py` 的封面契约按 track 分支：技术号仍要求国画风格与 2/4 行题诗，医学号允许临床插画风格、空题诗和 `cover_typography: none`。
+- `validate_body_images.py` 支持 `--footer`/`TOM_WECHAT_FOOTER_IMAGE` 按账号切换页脚；医学号首图必须是临床插画或确定性开场图，出现小黑会直接拦截。
+- `SKILL.md`、`README.md` 补充账号 profile、医学号封面、题诗可选和首图规则。
+
 ## 2026-11-11
 
 ### 新增

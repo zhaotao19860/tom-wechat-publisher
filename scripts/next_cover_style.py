@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Pick the next Chinese-painting cover style by round-robin over history.
+"""Pick the next cover style by round-robin over history.
 
 The skill cycles deterministically through the ordered style list instead of
 drawing at random: each new article uses the style that follows the most
 recently used one, wrapping back to the first after the last. This keeps
 consecutive covers from repeating until the whole list has been used.
 
+Technical articles cycle through Chinese painting styles; the medical account
+cycles through clinical illustration styles.
+
 Usage:
-  next_cover_style.py [--history-root DIR] [--styles "a,b,c"] [--verbose]
+  next_cover_style.py [--track dns|medical] [--history-root DIR] [--styles "a,b,c"] [--verbose]
 
 Output: the chosen style on stdout (single line). Diagnostics go to stderr.
 """
@@ -29,6 +32,14 @@ DEFAULT_STYLES = [
     "文人画",
     "新中式国风",
 ]
+MEDICAL_STYLES = [
+    "临床插画",
+    "医学水彩",
+    "临床信息图",
+]
+TRACK_STYLES = {
+    "medical": MEDICAL_STYLES,
+}
 
 _STYLE_RE = re.compile(r'^\s*cover_style\s*:\s*["\']?([^"\'\n#]+?)["\']?\s*$', re.MULTILINE)
 # Match a leading article date like 2026-0925 or 2026-09-25 with a plausible
@@ -94,11 +105,13 @@ def main(argv: list[str]) -> int:
         default=os.environ.get("TOM_WECHAT_HISTORY_ROOT")
         or str(Path.home() / "Desktop" / "wechat"),
     )
+    parser.add_argument("--track", default="", help="dns or medical; selects the style family")
     parser.add_argument("--styles", default="", help="comma-separated override of the ordered list")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv[1:])
 
-    styles = [s.strip() for s in args.styles.split(",") if s.strip()] if args.styles else DEFAULT_STYLES
+    default_styles = TRACK_STYLES.get(args.track.strip().lower(), DEFAULT_STYLES)
+    styles = [s.strip() for s in args.styles.split(",") if s.strip()] if args.styles else default_styles
     if not styles:
         print("ERROR: empty style list", file=sys.stderr)
         return 2

@@ -13,6 +13,7 @@
 - [Skill 构成](#skill-构成)
 - [工作原理](#工作原理)
 - [安全边界](#安全边界)
+- [多账号与医学号](#多账号与医学号)
 - [安装](#安装)
 - [凭据配置](#凭据配置)
 - [快速开始](#快速开始)
@@ -192,12 +193,35 @@ tom-wechat-publisher/
 上传前应确认：
 
 - 标题、作者、封面和正文图片数量正确；
-- 封面满足 AI 国风封面规则；
+- 封面满足目标账号的封面规则：技术号是 AI 国风，医学号是临床插画，题诗可选；
 - 正文图片已完成图片格式、文字和内容检查；
 - Wenyan 预览成功；
-- 目标公众号账号明确；
+- 目标公众号账号明确，`Target account` 与预期一致；
 - 用户明确要求创建草稿；
-- `WECHAT_APP_ID` 和 `WECHAT_APP_SECRET` 可用。
+- 目标账号对应的 AppID/AppSecret 环境变量可用。
+
+## 多账号与医学号
+
+一个 Skill 可以服务多个互相独立的公众号。账号配置放在 `accounts/<name>.json`，只记录环境变量名和默认值，不保存密钥。
+
+```bash
+bash ./scripts/publish_draft.sh article.md --account medical --preview-themes
+```
+
+`accounts/medical.json` 是独立医学号，默认：
+
+| 项目 | 值 |
+|---|---|
+| 内容线 | `medical`（合集：医学科普库，眉标：MED PRACTICE，栏目：临床笔记） |
+| 作者 | 赵涛 |
+| 主题 | `med-clinical`，可选 `med-warm-paper`、`med-quiet-blue` |
+| 历史根目录 | `~/Desktop/wechat-medical`，首次生成时自动创建 |
+| 凭据变量 | `WECHAT_MEDICAL_APP_ID` / `WECHAT_MEDICAL_APP_SECRET` |
+| Keychain 服务 | `tom-wechat-publisher-medical` |
+| 图片风格 | `clinical-illustration` |
+| 封面风格 | 临床插画、医学水彩、临床信息图，题诗可选 |
+
+不带 `--account` 时仍使用原来的技术号，作者、主题、历史根目录和合集行为不变。上传前 wrapper 会打印 `Target account` 和掩码后的 AppID；如果目标账号不对，立即停止，不要上传。
 
 ## 安装
 
@@ -286,6 +310,13 @@ bash ./scripts/publish_draft.sh article.md \
 ```bash
 export WECHAT_APP_ID="你的公众号AppID"
 export WECHAT_APP_SECRET="你的公众号AppSecret"
+```
+
+医学号使用独立变量，避免误传到技术号：
+
+```bash
+export WECHAT_MEDICAL_APP_ID="医学公众号AppID"
+export WECHAT_MEDICAL_APP_SECRET="医学公众号AppSecret"
 ```
 
 然后：
@@ -472,9 +503,11 @@ python3 ./scripts/ocr_validate.py \
 
 ### 封面
 
-封面必须是 AI 生成的中国画风格图片，支持的风格包括：水墨写意、工笔重彩、青绿山水、宋画风、敦煌壁画风、文人画和新中式国风。
+封面必须是 AI 生成的图片。技术号使用中国画风格，支持的风格包括：水墨写意、工笔重彩、青绿山水、宋画风、敦煌壁画风、文人画和新中式国风。
 
-新生成或重新生成的封面还需要：
+医学号使用临床插画风格，支持临床插画、医学水彩、临床信息图。画面保持安静、克制，人物匿名不可识别，不出现大出血、手术特写、可识别患者或医院标识，也不把 AI 插图当作诊断图像。医学号封面默认不渲染任何文字；题诗可选，只有用户明确提供时才写入 2 行或 4 行题款，`cover_typography` 可为 `none`。
+
+技术号新生成或重新生成的封面还需要：
 
 - 2.35:1 构图；
 - 恰好 4 行原创题诗，依次形成场景、张力、行动、后果；四行必须统一为每行 5 个或每行 7 个汉字；
@@ -488,9 +521,11 @@ python3 ./scripts/ocr_validate.py \
 
 正文图按照事实风险路由：
 
-- `ai + low`：场景、气氛、空间关系和抽象隐喻；
+- `ai + low`：技术号用小黑场景、气氛和抽象隐喻；医学号改用临床插画，人物匿名，不出现卡通吉祥物，也不在像素里写药名、剂量或化验值；
 - `html + high`：版本、数字、命令、配置、表格和清单；
 - `hybrid + medium/high`：AI 生成视觉主体，再用确定性层叠加事实标签。
+
+医学号的首图不使用小黑，改用临床插画或确定性开场图；`image_spec.py` 和 `validate_body_images.py` 都会按 `track: medical` 检查这一点。医学号也可以继续使用 mermaid/html 承载剂量、禁忌、复查节奏等精确事实。
 
 推荐顺序是：
 
@@ -528,14 +563,14 @@ python3 ~/.comate/skills/tom-wechat-publisher/scripts/video_render.py . \
 - `video_schedule.py`：每步时长取 `max(4.0, 旁白 + 0.15 + 0.8)` 秒，每个场景前留 1 秒、场景之间留 1.5 秒、结尾留 3 秒，写出 `schedule.json`。Remotion 工程直接 import 这个文件，画面和声音用同一个时钟。
 - `video_render.py`：调用 `npx remotion render --muted` 渲染无声画面，把旁白放在每步 `arrive + 0.15` 秒处，响度归一到 −16 LUFS，编码为 1280 宽 H.264 + AAC。GIF 超过 300 帧会被微信拒收，脚本会自动提高 GIF 倍速压到 300 帧以内。
 
-放进文章时，正文放无声 GIF；MP4 不能用接口上传后嵌入图文正文，需要在公众号网页编辑器里用「本地上传」插入。要求视频放在开头时，在首段写明并留出视频位，小黑开场图仍是第一张正文图。配音是否自然需要人工试听确认。
+放进文章时，正文放无声 GIF；MP4 不能用接口上传后嵌入图文正文，需要在公众号网页编辑器里用「本地上传」插入。要求视频放在开头时，在首段写明并留出视频位；技术号的小黑开场图或医学号的临床插画开场图仍是第一张正文图。配音是否自然需要人工试听确认。
 
 ## 默认作者
 
 默认作者为 `赵涛`。优先级如下：
 
 ```text
---author > WECHAT_AUTHOR > 赵涛
+--author > WECHAT_AUTHOR > 账号 profile 作者 > 赵涛
 ```
 
 示例：

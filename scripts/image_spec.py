@@ -47,7 +47,22 @@ PALETTES = [
     {"primary": "#dc2626", "accent": "#ef4444", "soft": "#fef2f2", "ink": "#3b0a0a"},
 ]
 
+MEDICAL_TRACK = "medical"
+MEDICAL_COVER_STYLE = "临床插画"
+# Lab values and named pathways must never be delegated to an image model.
+MEDICAL_FACT_TOKENS = (
+    "LDL-C", "HDL-C", "HbA1c", "eGFR", "CYP3A4",
+    "肌酸激酶", "转氨酶", "甘油三酯",
+)
+
 VISUAL_THEMES: dict[str, dict[str, Any]] = {
+    "clinical-illustration": {
+        "palette_index": 1,
+        "palettes": [
+            {"primary": "#1f5f6b", "accent": "#c2705a", "soft": "#f2f7f7", "ink": "#1f2d2b"},
+            {"primary": "#2b4c7e", "accent": "#7a9e7e", "soft": "#f4f7fb", "ink": "#22303f"},
+        ],
+    },
     "clean-professional": {
         "palette_index": 0,
         "palettes": [
@@ -141,11 +156,13 @@ class ImageSpec:
     locked_facts: list[str] = field(default_factory=list)
     qa_rules: list[str] = field(default_factory=list)
     track: str = ""              # content track from frontmatter; omitted from JSON when empty
+    source_text: str = ""        # section body used for routing; internal only
 
     def to_dict(self) -> dict:
         data = asdict(self)
         if not data.get("track"):
             data.pop("track", None)
+        data.pop("source_text", None)
         return data
 
 
@@ -872,6 +889,10 @@ def _assign_render_policy(spec: ImageSpec) -> None:
         value = match if isinstance(match, str) else next((part for part in match if part), "")
         if value and value not in locked:
             locked.append(value)
+    if _ACTIVE_TRACK == MEDICAL_TRACK:
+        for token in MEDICAL_FACT_TOKENS:
+            if token.lower() in exact_text.lower() and token not in locked:
+                locked.append(token)
     numeric_series = _numeric_series_count(spec.items)
 
     # Backend selection follows "pick whatever fits the content", never a single
@@ -887,11 +908,25 @@ def _assign_render_policy(spec: ImageSpec) -> None:
         "checklist": "checklist",
     }
 
+    medical_fact_slot = _ACTIVE_TRACK == MEDICAL_TRACK and (
+        bool(locked)
+        or numeric_series >= 3
+        or any(token.lower() in spec.source_text.lower() for token in MEDICAL_FACT_TOKENS)
+    )
+
     if spec.kind == "cover":
         spec.render_mode = "ai"
         spec.fact_risk = "low"
         spec.structure = "text-scene"
         spec.purpose = "建立文章主题和视觉记忆"
+    elif medical_fact_slot:
+        # In medical articles, any slot carrying doses, lab values or named
+        # pathways must stay deterministic. The clinical illustration is the
+        # opener; exact numbers never go through an image model.
+        spec.render_mode = "html" if numeric_series >= 5 else "mermaid"
+        spec.fact_risk = "high"
+        spec.structure = "data-first" if spec.render_mode == "html" else _MERMAID_STRUCTURE.get(spec.kind, "layer-stack")
+        spec.purpose = "用确定性图表承载剂量、指标或路径，避免图像模型改写医学事实"
     elif spec.kind in {"impact", "summary"}:
         spec.render_mode = "ai"
         spec.fact_risk = "low"
@@ -918,13 +953,25 @@ def _assign_render_policy(spec: ImageSpec) -> None:
     if spec.kind == "cover":
         spec.illustration_backend = "create-image"
     elif spec.render_mode == "ai" and spec.fact_risk == "low":
-        spec.illustration_backend = "ian-xiaohei-illustrations"
+        # Medical articles use clinical editorial illustrations; the Ian
+        # Xiaohei cartoon is reserved for the technical tracks.
+        spec.illustration_backend = (
+            "clinical-illustration" if _ACTIVE_TRACK == MEDICAL_TRACK else "ian-xiaohei-illustrations"
+        )
+        spec.rendered_by = (
+            "clinical-illustration/create-image"
+            if _ACTIVE_TRACK == MEDICAL_TRACK
+            else "ian-xiaohei-illustrations/create-image"
+        )
     elif spec.render_mode == "mermaid":
         spec.illustration_backend = "mermaid-render"
+        spec.rendered_by = "mermaid-render"
     elif spec.render_mode == "html":
         spec.illustration_backend = "html-render"
+        spec.rendered_by = "html-render"
     else:
         spec.illustration_backend = "html-render"
+        spec.rendered_by = "html-render"
 
 
     spec.labels = [
@@ -981,16 +1028,20 @@ def _derive_specs_body(fm: dict, body: str, visual_theme: str) -> list[ImageSpec
     cover_value = str(fm.get("cover") or "")
     cover_filename = Path(cover_value).stem if cover_value else "cover_article"
     explicit_poem = fm.get("cover_poem")
-    cover_text = (
-        [str(line).strip() for line in explicit_poem if str(line).strip()]
-        if isinstance(explicit_poem, list)
-        else _cover_poem_lines(title, sections)
-    )
+    is_medical = _ACTIVE_TRACK == MEDICAL_TRACK
+    if isinstance(explicit_poem, list):
+        cover_text = [str(line).strip() for line in explicit_poem if str(line).strip()]
+    elif is_medical:
+        # Medical covers are clinical illustrations. An inscription is optional
+        # and must be explicitly supplied; never auto-generate a poem.
+        cover_text = []
+    else:
+        cover_text = _cover_poem_lines(title, sections)
     specs.append(ImageSpec(
         filename=cover_filename,
         kind="cover",
         title_zh=title,
-        subtitle="5 分钟看懂 · 图多字少",
+        subtitle="门诊常问 · 看图就懂" if is_medical else "5 分钟看懂 · 图多字少",
         items=cover_items,
         palette_index=cover_palette_index,
         visual_theme=visual_theme,
@@ -998,10 +1049,19 @@ def _derive_specs_body(fm: dict, body: str, visual_theme: str) -> list[ImageSpec
         source_section="title",
         notes=_cover_cta(sections, title),
         cover_text=cover_text,
-        cover_style=str(fm.get("cover_style") or ""),
-        cover_typography=str(fm.get("cover_typography") or ""),
-        text_style="Chinese calligraphy, lishu or kaishu, ink-brush title poem",
-        text_policy="cover-poem-calligraphy",
+        cover_style=str(fm.get("cover_style") or (MEDICAL_COVER_STYLE if is_medical else "")),
+        cover_typography=str(
+            fm.get("cover_typography")
+            or ("horizontal" if is_medical and cover_text else "none" if is_medical else "")
+        ),
+        text_style=(
+            "clean clinical illustration, restrained sans-serif title; no calligraphy"
+            if is_medical
+            else "Chinese calligraphy, lishu or kaishu, ink-brush title poem"
+        ),
+        text_policy=(
+            "cover-poem-calligraphy" if cover_text else "cover-text-free"
+        ) if is_medical else "cover-poem-calligraphy",
     ))
 
     # 2..N) one spec per illustrated section. Prefer the real Markdown image
@@ -1129,30 +1189,46 @@ def _derive_specs_body(fm: dict, body: str, visual_theme: str) -> list[ImageSpec
             theme_palette=theme_palette,
             source_section=sec_title,
             notes=f"derived from section: {sec_title or 'intro'}",
+            source_text=sec_body,
         ))
     for spec in specs:
         _assign_render_policy(spec)
     body_specs = [spec for spec in specs if spec.kind != "cover"]
     if body_specs:
         # Keep the first body slot as the editorial entry point. Exact facts
-        # belong in later deterministic slots; the opening image should lower
-        # cognitive load with a sparse Ian Xiaohei scene.
+        # belong in later deterministic slots. Technical tracks use a sparse
+        # Ian Xiaohei scene; medical tracks use a clinical illustration with no
+        # cartoon character and no readable medical facts.
         first = body_specs[0]
         first.render_mode = "ai"
         first.fact_risk = "low"
-        first.illustration_backend = "ian-xiaohei-illustrations"
-        first.rendered_by = "ian-xiaohei-illustrations/create-image"
-        first.structure = "text-scene"
-        first.purpose = "用小黑的核心动作建立文章的第一视觉锚点"
         first.locked_facts = []
-        first.labels = first.labels[:3]
-        first.qa_rules = [
-            "纯白背景",
-            "小黑必须承担核心动作",
-            "正文第一张图",
-            "公众号宽度下主体清晰",
-            "不得出现事实数字、命令或水印",
-        ]
+        if _ACTIVE_TRACK == MEDICAL_TRACK:
+            first.illustration_backend = "clinical-illustration"
+            first.rendered_by = "clinical-illustration/create-image"
+            first.structure = "clinical-scene"
+            first.purpose = "用一张安静的临床场景插画建立第一视觉锚点"
+            first.labels = first.labels[:2]
+            first.qa_rules = [
+                "临床插画风格，非卡通",
+                "不得出现小黑或吉祥物",
+                "不得出现可识别患者、姓名或腕带",
+                "不得出现药名、剂量或其他数字",
+                "公众号宽度下主体清晰",
+            ]
+        else:
+            first.illustration_backend = "ian-xiaohei-illustrations"
+            first.rendered_by = "ian-xiaohei-illustrations/create-image"
+            first.structure = "text-scene"
+            first.purpose = "用小黑的核心动作建立文章的第一视觉锚点"
+            first.labels = first.labels[:3]
+            first.qa_rules = [
+                "纯白背景",
+                "小黑必须承担核心动作",
+                "正文第一张图",
+                "公众号宽度下主体清晰",
+                "不得出现事实数字、命令或水印",
+            ]
     return specs
 
 

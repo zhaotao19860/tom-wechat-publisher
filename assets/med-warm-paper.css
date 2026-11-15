@@ -1,0 +1,13 @@
+/* Med Warm Paper - readable warm-paper theme for clinic notes */
+:root{--c:#5a3d2b;--a:#a0603d;--soft:#faf3e9;--quote:#fbf5ec;--text:#332a23;--border:#e3d5c3;--code:#f6efe4;--code-text:#4a382a}
+#wenyan{color:var(--text);font-size:17px;line-height:1.92;letter-spacing:.01em}#wenyan *{box-sizing:border-box}#wenyan p{margin:1.05em 0;text-align:justify}
+#wenyan a{color:var(--c);text-decoration:none;border-bottom:1px solid rgba(90,61,43,.35);word-wrap:break-word}#wenyan strong{color:var(--c);font-weight:700}
+#wenyan h1,#wenyan h2,#wenyan h3,#wenyan h4,#wenyan h5,#wenyan h6{font-weight:700;line-height:1.5;margin:1.6em 0 .8em;color:var(--c)}
+#wenyan h1{font-size:1.5em;text-align:center}#wenyan h1:after{content:"";display:block;width:64px;height:3px;margin:.55em auto 0;border-radius:999px;background:var(--a)}
+#wenyan h2{font-size:1.26em;padding:8px 12px;border-left:5px solid var(--a);border-radius:0 8px 8px 0;background:var(--soft)}#wenyan h3{font-size:1.13em;padding-left:10px;border-left:3px solid var(--a)}
+#wenyan blockquote{margin:1.3em 0;padding:12px 16px;color:#54463b;border-left:4px solid var(--a);border-radius:8px;background:var(--quote)}#wenyan blockquote p{margin:.35em 0}
+#wenyan ul,#wenyan ol{margin:.8em 0 1em 1rem;padding-left:.8rem}#wenyan li{margin:.4em 0}#wenyan li::marker{color:var(--a)}
+#wenyan img{display:block;max-width:100%;height:auto;margin:1.2em auto;border-radius:8px}#wenyan table{display:table;width:100%;max-width:100%;margin:1.5em auto;border-collapse:collapse;table-layout:fixed;word-break:break-word}
+#wenyan th,#wenyan td{padding:10px 11px;font-size:.88em;line-height:1.6;border:1px solid var(--border)}#wenyan th{color:#fff;background:var(--c);font-weight:700}#wenyan tr:nth-child(even) td{background:#fdf9f2}
+#wenyan p code,#wenyan li code{margin:0 2px;padding:2px 5px;color:var(--code-text);font-size:.88em;border-radius:4px;background:var(--code)}#wenyan pre{margin:1.2em 0;padding:12px;color:#3a2f26;font-size:13px;line-height:1.8;border:1px solid var(--border);border-radius:8px;background:#fbf7f0;overflow-x:auto}#wenyan pre code{display:block;padding:0;background:transparent}
+#wenyan hr{height:1px;margin:2em 0;border:0;background:linear-gradient(90deg,transparent,var(--border),transparent)}

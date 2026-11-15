@@ -1506,14 +1506,26 @@ def _requested_swiss_layout(spec: dict) -> str:
     return ""
 
 
+def _is_medical(spec: dict) -> bool:
+    return str(spec.get("track") or "").strip().lower() == "medical"
+
+
+def _ui(spec: dict, english: str, chinese: str) -> str:
+    """Keep deterministic diagram chrome Chinese for the medical account."""
+    return chinese if _is_medical(spec) else english
+
+
 def _swiss_shell(spec: dict, layout: str, body: str) -> str:
     w, h = CANVAS.get(_kind(spec), CANVAS["summary"])
     title = _esc(spec.get("title_zh", ""))
     kicker = _esc(spec.get("source_section", "") or spec.get("kind", "ARTICLE VISUAL"))
+    paper = "#fbfaf7" if _is_medical(spec) else "#fafaf8"
+    accent = "#1f5f6b" if _is_medical(spec) else "#002FA7"
+    chrome_note = "临床信息图" if _is_medical(spec) else "WECHAT INFOGRAPHIC"
     return f"""<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8"><style>
-  :root {{ --paper:#fafaf8; --ink:#0a0a0a; --grey-1:#f0f0ee; --grey-2:#d4d4d2;
-    --grey-3:#737373; --accent:#002FA7; --accent-on:#fff; --secondary:#525252; }}
+  :root {{ --paper:{paper}; --ink:#0a0a0a; --grey-1:#f0f0ee; --grey-2:#d4d4d2;
+    --grey-3:#737373; --accent:{accent}; --accent-on:#fff; --secondary:#525252; }}
   *,*::before,*::after {{ box-sizing:border-box; margin:0; padding:0; animation:none!important; transition:none!important; }}
   html,body {{ width:{w}px; height:{h}px; overflow:hidden; }}
   body {{ background:var(--paper); color:var(--ink); font-family:{FONT_STACK}; letter-spacing:0; }}
@@ -1566,7 +1578,7 @@ def _swiss_shell(spec: dict, layout: str, body: str) -> str:
   .ring.core {{ width:210px; height:210px; background:var(--accent); color:#fff; border:0; place-items:center; padding:24px; text-align:center; }}
   .ring-label {{ font-size:22px; font-weight:600; }}
 </style></head><body><main class="page" data-layout="{layout}">
-<header class="chrome"><span><i class="mark"></i>{kicker}</span><span>{layout} / WECHAT INFOGRAPHIC</span></header>
+<header class="chrome"><span><i class="mark"></i>{kicker}</span><span>{layout} / {chrome_note}</span></header>
 {body}</main></body></html>"""
 
 
@@ -1575,7 +1587,7 @@ def _render_swiss_s03(spec: dict) -> str:
     first = items[0] if items else {}
     statement = _esc(first.get("label") or spec.get("title_zh", ""))
     explanation = _esc(first.get("sub") or spec.get("subtitle") or spec.get("notes", ""))
-    body = f'''<div class="split"><section class="split-panel fill-ink"><div class="kicker">CORE STATEMENT</div><div class="statement">{statement}</div></section><section class="split-panel fill-grey"><div class="kicker">WHY IT MATTERS</div><div class="statement-copy">{explanation}</div><div class="meta">{_esc(spec.get("title_zh", ""))}</div></section></div>'''
+    body = f'''<div class="split"><section class="split-panel fill-ink"><div class="kicker">{_ui(spec, "CORE STATEMENT", "核心结论")}</div><div class="statement">{statement}</div></section><section class="split-panel fill-grey"><div class="kicker">{_ui(spec, "WHY IT MATTERS", "为什么重要")}</div><div class="statement-copy">{explanation}</div><div class="meta">{_esc(spec.get("title_zh", ""))}</div></section></div>'''
     return _swiss_shell(spec, "S03", body)
 
 
@@ -1586,8 +1598,8 @@ def _render_swiss_s05(spec: dict) -> str:
     layers = []
     tones = ["fill-grey", "fill-accent", "fill-ink"]
     for i, item in enumerate(items):
-        layers.append(f'''<article class="layer {tones[i]}"><span class="layer-nb">0{i+1}</span><h2>{_item_text(item,"label")}</h2><p>{_item_text(item,"sub")}</p><span class="meta">LAYER {i+1}</span></article>''')
-    head = f'''<div class="head"><div><div class="kicker">THREE LAYERS</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
+        layers.append(f'''<article class="layer {tones[i]}"><span class="layer-nb">0{i+1}</span><h2>{_item_text(item,"label")}</h2><p>{_item_text(item,"sub")}</p><span class="meta">{_ui(spec, f"LAYER {i+1}", f"第 {i+1} 层")}</span></article>''')
+    head = f'''<div class="head"><div><div class="kicker">{_ui(spec, "THREE LAYERS", "三层结构")}</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
     return _swiss_shell(spec, "S05", head + f'<div class="stack">{"".join(layers)}</div>')
 
 
@@ -1602,7 +1614,7 @@ def _render_swiss_s07(spec: dict) -> str:
         width = max(2, min(100, abs(value[0]) / maximum * 100))
         tone = " fill-accent" if i == 0 else ""
         rows.append(f'<div class="bar-label">{_item_text(item,"label")}</div><div class="track"><div class="bar{tone}" style="width:{width:.2f}%"></div></div><div class="bar-value">{_esc(value[1])}<small>{_esc(value[2])}</small></div>')
-    head = f'''<div class="head"><div><div class="kicker">DATA COMPARISON</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
+    head = f'''<div class="head"><div><div class="kicker">{_ui(spec, "DATA COMPARISON", "数据对照")}</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
     return _swiss_shell(spec, "S07", head + f'<div class="bars">{"".join(rows)}</div>')
 
 
@@ -1618,8 +1630,9 @@ def _render_swiss_s08(spec: dict) -> str:
         if not bullets and sub:
             bullets = [part.strip() for part in re.split(r"[；;。]", str(item.get("sub"))) if part.strip()][:3]
         list_html = "".join(f"<li>{_esc(value)}</li>" for value in bullets)
-        cols.append(f'''<section class="duo-col{' accent' if i else ''}"><div class="kicker">{'AFTER' if i else 'BEFORE'} / 0{i+1}</div><h2>{label}</h2><p>{sub}</p><ul class="duo-list">{list_html}</ul></section>''')
-    head = f'''<div class="head"><div><div class="kicker">DUO COMPARE</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
+        side = _ui(spec, "AFTER" if i else "BEFORE", "之后" if i else "之前")
+        cols.append(f'''<section class="duo-col{' accent' if i else ''}"><div class="kicker">{side} / 0{i+1}</div><h2>{label}</h2><p>{sub}</p><ul class="duo-list">{list_html}</ul></section>''')
+    head = f'''<div class="head"><div><div class="kicker">{_ui(spec, "DUO COMPARE", "两组对照")}</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
     return _swiss_shell(spec, "S08", head + f'<div class="duo">{cols[0]}<span class="vrule"></span>{cols[1]}</div>')
 
 
@@ -1630,7 +1643,7 @@ def _render_swiss_s11(spec: dict) -> str:
     nodes = []
     for i, item in enumerate(items):
         nodes.append(f'''<div class="node {'up' if i % 2 == 0 else 'down'}"><span class="dot{' fill-accent' if i == len(items)-1 else ''}"></span><div class="node-label"><span class="node-step">{_esc(item.get("step") or str(i+1).zfill(2))}</span><span class="node-name">{_item_text(item,"label")}</span><span class="node-sub">{_item_text(item,"sub")}</span></div></div>''')
-    head = f'''<div class="head"><div><div class="kicker">PROCESS PATH</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
+    head = f'''<div class="head"><div><div class="kicker">{_ui(spec, "PROCESS PATH", "处理路径")}</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
     return _swiss_shell(spec, "S11", head + f'<div class="timeline"><div class="nodes" style="grid-template-columns:repeat({len(nodes)},1fr)">{"".join(nodes)}</div></div>')
 
 
@@ -1640,10 +1653,11 @@ def _render_swiss_s17(spec: dict) -> str:
         return _render_premium_cards(spec)
     notes = []
     for i, item in enumerate(items):
-        notes.append(f'''<article class="system-note"><div class="meta">{'CORE' if i == 0 else 'MIDDLE' if i == 1 else 'OUTER'}</div><h2>{_item_text(item,"label")}</h2><p>{_item_text(item,"sub")}</p></article>''')
+        position = _ui(spec, "CORE" if i == 0 else "MIDDLE" if i == 1 else "OUTER", "核心" if i == 0 else "中间" if i == 1 else "外围")
+        notes.append(f'''<article class="system-note"><div class="meta">{position}</div><h2>{_item_text(item,"label")}</h2><p>{_item_text(item,"sub")}</p></article>''')
     labels = [_item_text(item, "label") for item in items]
     rings = f'''<div class="rings"><div class="ring outer"><span class="ring-label">{labels[2]}</span></div><div class="ring middle"><span class="ring-label accent">{labels[1]}</span></div><div class="ring core"><span class="ring-label">{labels[0]}</span></div></div>'''
-    head = f'''<div class="head"><div><div class="kicker">SYSTEM LAYERS</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
+    head = f'''<div class="head"><div><div class="kicker">{_ui(spec, "SYSTEM LAYERS", "结构关系")}</div><h1>{_esc(spec.get("title_zh", ""))}</h1></div><p class="lead">{_esc(spec.get("subtitle", ""))}</p></div>'''
     return _swiss_shell(spec, "S17", head + f'<div class="system"><div class="system-notes">{"".join(notes)}</div>{rings}</div>')
 
 

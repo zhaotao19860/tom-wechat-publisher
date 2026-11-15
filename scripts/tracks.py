@@ -5,9 +5,9 @@ An article declares its track with an optional frontmatter field::
 
     track: l4-gateway
 
-Known tracks are ``dns``, ``l4-gateway`` and ``ai-gateway``. A missing or
-unknown value always resolves to ``dns`` so older articles behave exactly as
-before.
+Known tracks are ``dns``, ``l4-gateway``, ``ai-gateway`` and ``medical``. A
+missing or unknown value always resolves to ``dns`` so older articles behave
+exactly as before.
 
 CLI (used by publish_draft.sh)::
 
@@ -37,6 +37,13 @@ AI_GATEWAY_TOKENS = (
     "模型路由", "限流", "熔断", "鉴权",
 )
 
+MEDICAL_TOKENS = (
+    "他汀", "二甲双胍", "氯吡格雷", "阿司匹林", "华法林", "氨氯地平",
+    "LDL-C", "HDL-C", "甘油三酯", "HbA1c", "eGFR", "肌酸激酶", "转氨酶",
+    "CYP3A4", "适应证", "禁忌证", "不良反应", "相互作用", "剂量",
+    "血压", "血糖", "血脂", "指南", "专家共识", "随访", "复查",
+)
+
 TRACKS = {
     "dns": {
         "display_name": "DNS",
@@ -61,6 +68,14 @@ TRACKS = {
         "column": "架构实践",
         "album": "网关知识库",
         "tokens": AI_GATEWAY_TOKENS,
+    },
+    "medical": {
+        "display_name": "医学科普",
+        "kicker": "MED PRACTICE",
+        "kicker_upper": "MED PRACTICE",
+        "column": "临床笔记",
+        "album": "医学科普库",
+        "tokens": MEDICAL_TOKENS,
     },
 }
 
@@ -133,18 +148,21 @@ def ensure_frontmatter_track(markdown: str, track: str) -> str:
     return markdown[:end] + "\ntrack: " + normalize_track(track) + markdown[end:]
 
 
-# Words that strongly suggest a gateway article. Matched case-insensitively on word
-# boundaries for ASCII terms, so "RS" in "users" or "VIP" in prose do not fire alone.
-GATEWAY_HINTS = {
+# Words that strongly suggest a specialized track. Matched case-insensitively
+# on word boundaries for ASCII terms, so "RS" in "users" or "VIP" in prose do
+# not fire alone. Medical needs >=2 distinct terms as well, so a single mention
+# of "剂量" in a gateway article does not reclassify it.
+TRACK_HINTS = {
     "l4-gateway": ("LVS", "FullNAT", "四层网关", "四层负载均衡", "ECMP", "Maglev", "conntrack", "DPVS", "XDP"),
     "ai-gateway": ("AI 网关", "AI网关", "模型路由", "LLM 网关", "LiteLLM", "Higress", "TPM", "token 计费", "OpenAI 兼容"),
+    "medical": ("患者", "门诊", "诊断", "用药", "剂量", "症状", "治疗", "疾病", "指南", "药物", "随访", "复查"),
 }
 
 
 def suggest_track(text: str) -> str:
-    """Return a gateway track when the body has >=2 distinct hint terms, else ''."""
+    """Return a specialized track when the body has >=2 distinct hint terms."""
     best, best_hits = "", 1
-    for track, words in GATEWAY_HINTS.items():
+    for track, words in TRACK_HINTS.items():
         hits = sum(1 for w in words if (re.search(r"(?<![A-Za-z])" + re.escape(w) + r"(?![A-Za-z])", text, re.I)
                                         if w.isascii() else w in text))
         if hits > best_hits:
@@ -163,7 +181,8 @@ def cli(argv: list) -> int:
             return 0
         guess = suggest_track(text)
         if guess:
-            print(f"Track hint: 正文像是网关文章，frontmatter 没写 track；如果是，请加 `track: {guess}`（不加就按 DNS 处理，眉标和合集提醒都会按 DNS）")
+            label = TRACKS[guess]["display_name"]
+            print(f"Track hint: 正文像是{label}文章，frontmatter 没写 track；如果是，请加 `track: {guess}`（不加就按 DNS 处理，眉标和合集提醒都会按 DNS）")
         return 0
     track = track_from_path(path)
     print(track if argv[1] == "track" else album(track))

@@ -9,7 +9,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from prepare_wechat_md import ALLOWED_COVER_STYLES, is_remote, parse_frontmatter
+from prepare_wechat_md import cover_contract_errors, is_remote, parse_frontmatter
 
 
 def validate_article(article: Path) -> list[str]:
@@ -27,21 +27,7 @@ def validate_article(article: Path) -> list[str]:
     elif not (article.parent / cover).resolve().is_file():
         errors.append(f"cover file does not exist: {cover}")
 
-    generation = data.get("cover_generation", "")
-    if not isinstance(generation, str) or generation.strip().lower() != "ai":
-        errors.append("cover_generation must be 'ai'")
-
-    style = data.get("cover_style", "")
-    if not isinstance(style, str) or style.strip() not in ALLOWED_COVER_STYLES:
-        errors.append("cover_style must be an approved Chinese painting style")
-
-    poem = data.get("cover_poem", [])
-    if not isinstance(poem, list) or len(poem) not in {2, 4} or any(not str(line).strip() for line in poem):
-        errors.append("cover_poem must contain exactly 2 or 4 non-empty lines")
-
-    typography = data.get("cover_typography", "")
-    if not isinstance(typography, str) or typography.strip() not in {"vertical", "horizontal", "split"}:
-        errors.append("cover_typography must be vertical, horizontal, or split")
+    errors.extend(cover_contract_errors(data))
     return errors
 
 
