@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/zhaotao19860/tom-wechat-publisher#readme",
   "dependencies": {
-    "mermaid": "^11.17.2"
+    "mermaid": "^11.17.2",
+    "playwright": "^1.49.1"
   }
 }
