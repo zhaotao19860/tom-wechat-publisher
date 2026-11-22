@@ -11,6 +11,10 @@ A profile is a small JSON file under ``accounts/``. It never contains secrets:
 only the *names* of the environment variables that hold the AppID/AppSecret and
 the Keychain service label used as a fallback.
 
+Optional ``image_backend`` picks the AI image backend for this account
+(``comate``, ``openai``, ``gemini`` or ``command``; see image_backend.py). Empty
+means "not set": env TOM_WECHAT_IMAGE_BACKEND decides, else ``comate``.
+
 CLI used by publish_draft.sh::
 
     account_profile.py shell --profile medical
@@ -44,6 +48,7 @@ DEFAULT_VALUES: dict[str, Any] = {
     "album": "",
     "footer_image": "",
     "image_visual_theme": "",
+    "image_backend": "",
     "preview_themes": [],
     "cover_styles": [],
 }
@@ -62,7 +67,9 @@ _STRING_FIELDS = {
     "album",
     "footer_image",
     "image_visual_theme",
+    "image_backend",
 }
+_IMAGE_BACKENDS = {"", "comate", "openai", "gemini", "command"}
 _ALLOWED_FIELDS = _STRING_FIELDS | _LIST_FIELDS
 
 
@@ -138,6 +145,9 @@ def load_profile(name: str = DEFAULT_PROFILE) -> dict[str, Any]:
         raise ProfileError("app_secret_env must be an upper-case environment variable name")
     if data["app_secret_env"] == data["app_id_env"]:
         raise ProfileError("app_id_env and app_secret_env must differ")
+    data["image_backend"] = data["image_backend"].lower()
+    if data["image_backend"] not in _IMAGE_BACKENDS:
+        raise ProfileError("image_backend must be empty or one of: comate, openai, gemini, command")
 
     data["history_root"] = os.path.expanduser(data["history_root"])
     return data
@@ -158,6 +168,7 @@ def shell_values(profile: dict[str, Any]) -> dict[str, str]:
         "PROFILE_ALBUM": str(profile["album"]),
         "PROFILE_FOOTER_IMAGE": str(profile["footer_image"]),
         "PROFILE_IMAGE_VISUAL_THEME": str(profile["image_visual_theme"]),
+        "PROFILE_IMAGE_BACKEND": str(profile["image_backend"]),
         "PROFILE_PREVIEW_THEMES": " ".join(str(item) for item in profile["preview_themes"]),
         "PROFILE_COVER_STYLES": ",".join(str(item) for item in profile["cover_styles"]),
     }

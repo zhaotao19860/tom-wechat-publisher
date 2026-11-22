@@ -11,6 +11,7 @@
   "album": "医学科普库",
   "footer_image": "",
   "image_visual_theme": "clinical-illustration",
+  "image_backend": "",
   "preview_themes": [
     "med-clinical",
     "med-warm-paper",

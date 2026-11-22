@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -271,6 +272,35 @@ class PublishSafetyTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(marker.exists(), result.stderr)
+
+    def test_failure_notification_skips_when_infoflow_is_missing(self) -> None:
+        # Recipient configured but no ~/.comate/skills/infoflow-message-group (home
+        # Mac without the intranet): the trap must log a skip and keep the exit code.
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        result, _ = self.run_wrapper_with_fakes(
+            upload=False,
+            checker_exit=7,
+            env_extra={"TOM_WECHAT_FAILURE_NOTIFY": "recipient", "HOME": home},
+        )
+
+        self.assertEqual(result.returncode, 7)
+        self.assertIn("如流通知跳过 (recipient=recipient, infoflow=missing)", result.stderr)
+
+    def test_prose_checker_is_found_under_claude_skills(self) -> None:
+        home = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, home, True)
+        checker_dir = home / ".claude/skills/human-writing/scripts"
+        checker_dir.mkdir(parents=True)
+        marker = home / "claude-checker-ran"
+        (checker_dir / "check_prose.py").write_text(
+            f"from pathlib import Path\nPath({str(marker)!r}).touch()\n",
+            encoding="utf-8",
+        )
+        result, _ = self.run_wrapper_with_fakes(upload=False, env_extra={"HOME": str(home), "TOM_WECHAT_CHECK_PROSE": ""})
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(marker.is_file())
 
     def test_medical_account_uses_isolated_credentials_and_album(self) -> None:
         result, fixture = self.run_wrapper_with_fakes(

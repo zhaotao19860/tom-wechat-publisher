@@ -45,23 +45,13 @@ from typing import Iterable
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent  # tom-wechat-publisher/
 
-# Nano Banana Pro wrapper from the create-image skill. macOS/Linux only here.
-# Prefer an explicit override, then discover common Comate skill locations without
-# embedding a machine-specific home directory in the public repository.
-def _create_image_path(env_name: str, filename: str) -> Path:
-    override = os.environ.get(env_name, "").strip()
-    if override:
-        return Path(override).expanduser()
-    candidates = [
-        Path.home() / ".comate" / "skills" / ".system" / "create-image" / "scripts" / filename,
-        Path.home() / ".agents" / "skills" / ".system" / "create-image" / "scripts" / filename,
-        Path.home() / ".codex" / "skills" / ".system" / "create-image" / "scripts" / filename,
-    ]
-    return next((candidate for candidate in candidates if candidate.exists()), candidates[0])
-
-
-CREATE_IMAGE_BASH = _create_image_path("TOM_WECHAT_CREATE_IMAGE_BASH", "generate-image.sh")
-CREATE_IMAGE_PS1 = _create_image_path("TOM_WECHAT_CREATE_IMAGE_PS1", "generate-image.ps1")
+# All AI raster images go through scripts/image_backend.py. It keeps the
+# generate-image.sh CLI and picks the backend from TOM_WECHAT_IMAGE_BACKEND, the
+# account profile, or the Comate create-image wrapper by default
+# (TOM_WECHAT_CREATE_IMAGE_BASH / _PS1 still override that wrapper's path).
+IMAGE_BACKEND_SCRIPT = SCRIPT_DIR / "image_backend.py"
+# image_backend.py exit codes that a retry cannot fix (args, deps, config, input).
+IMAGE_BACKEND_FATAL_CODES = {2, 3, 4, 5}
 
 # Visual style guide passed to Nano Banana Pro via /create-image.
 # Body illustrations must explain the article, not merely decorate it. The model
@@ -133,6 +123,11 @@ HTML_FIRST_KINDS = {"summary", "flow", "compare", "checklist", "impact", "timeli
 AI_TEXT_OVERLAY = os.environ.get("TOM_WECHAT_AI_TEXT_OVERLAY", "1").strip().lower() not in {"0", "false", "no"}
 
 sys.path.insert(0, str(SCRIPT_DIR))
+try:
+    import image_backend as _image_backend  # type: ignore
+except Exception as _e:  # pragma: no cover
+    _image_backend = None
+    print(f"[generate-article:init] image_backend module unavailable: {_e}", file=sys.stderr)
 try:
     import image_spec as _image_spec  # type: ignore
     import tracks as _tracks  # type: ignore
@@ -1295,65 +1290,26 @@ def build_image_prompts_from_markdown(plan: ArticlePlan, markdown: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _decode_jwt_payload(token: str) -> dict:
-    parts = token.strip().split(".")
-    if len(parts) < 2:
-        return {}
-    payload = parts[1]
-    payload += "=" * (-len(payload) % 4)
-    try:
-        return json.loads(base64.urlsafe_b64decode(payload.encode("utf-8")))
-    except Exception:
-        return {}
-
-
 def resolve_comate_username_encrypted() -> str:
-    """Find the Comate encrypted username for create-image.
+    """Kept for callers of the old API; the lookup lives in image_backend.py."""
+    return _image_backend.resolve_comate_username_encrypted() if _image_backend is not None else ""
 
-    In some Comate Agent terminal sessions, the user is logged in but the
-    child shell does not inherit COMATE_USERNAME_ENCRYPTED. Comate stores a
-    local bearer token under ~/.comate/login-user/<username>; its JWT payload
-    contains content.identity, which is exactly the encrypted username needed
-    by create-image. Never print the token or the identity value.
-    """
-    existing = os.environ.get("COMATE_USERNAME_ENCRYPTED", "").strip()
-    if existing:
-        return existing
 
-    login_dir = Path.home() / ".comate" / "login-user"
-    candidates = []
-    if login_dir.exists():
-        candidates.extend(p for p in login_dir.iterdir() if p.is_file())
-    fallback_login = Path.home() / ".comate" / "login"
-    if fallback_login.exists():
-        candidates.append(fallback_login)
-
-    for candidate in candidates:
-        try:
-            raw = candidate.read_text(encoding="utf-8").strip()
-        except Exception:
-            continue
-        raw_candidates = [raw]
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict):
-                raw_candidates.extend(
-                    str(value)
-                    for key, value in parsed.items()
-                    if isinstance(value, str) and key.lower() in {"token", "access_token", "authorization", "bearer", "bearertoken"}
-                )
-        except Exception:
-            pass
-        for raw_token in raw_candidates:
-            bearer_match = re.search(r"Bearer[-\s]+([A-Za-z0-9_.-]+)", raw_token)
-            token = bearer_match.group(1) if bearer_match else raw_token
-            if token.startswith("Bearer-"):
-                token = token[len("Bearer-") :]
-            payload = _decode_jwt_payload(token)
-            identity = (payload.get("content") or {}).get("identity")
-            if isinstance(identity, str) and identity:
-                return identity
-    return ""
+def image_backend_status() -> dict:
+    """Ask image_backend.py --check which backend is selected and whether it is usable."""
+    try:
+        result = subprocess.run(
+            [sys.executable, str(IMAGE_BACKEND_SCRIPT), "--check", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        report = json.loads(result.stdout or "{}")
+    except Exception as e:
+        return {"backend": None, "usable": False, "details": {}, "problems": [f"image_backend.py --check failed: {e}"]}
+    if not isinstance(report, dict):
+        return {"backend": None, "usable": False, "details": {}, "problems": ["image_backend.py --check returned no report"]}
+    return report
 
 
 def _retry_prompt(prompt: str, attempt: int) -> str:
@@ -1370,60 +1326,35 @@ def run_create_image(
     resolution: str = "2K",
     input_path: Path | None = None,
 ) -> bool:
-    """Call the create-image skill wrapper. Returns True on success.
+    """Generate one image through image_backend.py. Returns True on success.
 
-    When input_path is provided this uses Nano Banana image-to-image editing,
-    which lets us repair generated text without discarding the composition.
+    When input_path is provided this uses image-to-image editing, which lets us
+    repair generated text without discarding the composition.
     """
-    if not CREATE_IMAGE_BASH.exists() and not CREATE_IMAGE_PS1.exists():
-        print(f"[generate-article:image] create-image skill not found", file=sys.stderr)
+    if not IMAGE_BACKEND_SCRIPT.exists():
+        print(f"[generate-article:image] image backend not found: {IMAGE_BACKEND_SCRIPT}", file=sys.stderr)
         return False
+
     def build_cmd(current_prompt: str) -> list[str]:
-        if CREATE_IMAGE_BASH.exists():
-            cmd = [
-                "bash",
-                str(CREATE_IMAGE_BASH),
-                "--prompt",
-                current_prompt,
-                "--output",
-                output,
-                "--aspect-ratio",
-                aspect,
-                "--resolution",
-                resolution,
-            ]
-            if input_path is not None:
-                cmd.extend(["--input", str(input_path)])
-            return cmd
         cmd = [
-            "powershell",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(CREATE_IMAGE_PS1),
-            "-Prompt",
+            sys.executable,
+            str(IMAGE_BACKEND_SCRIPT),
+            "--prompt",
             current_prompt,
-            "-Output",
+            "--output",
             output,
-            "-AspectRatio",
+            "--aspect-ratio",
             aspect,
-            "-Resolution",
+            "--resolution",
             resolution,
         ]
         if input_path is not None:
-            cmd.extend(["-InputPath", str(input_path)])
+            cmd.extend(["--input", str(input_path)])
         return cmd
+
     env = os.environ.copy()
-    identity = resolve_comate_username_encrypted()
-    if identity:
-        env["COMATE_USERNAME_ENCRYPTED"] = identity
-    else:
-        print(
-            "[generate-article:image] COMATE_USERNAME_ENCRYPTED not found in env or ~/.comate/login-user",
-            file=sys.stderr,
-        )
-        return False
+    # This loop owns retries (with prompt variations); one request per backend run.
+    env["TOM_WECHAT_CREATE_IMAGE_ATTEMPTS"] = "1"
 
     last_error = ""
     for attempt in range(CREATE_IMAGE_ATTEMPTS):
@@ -1467,6 +1398,8 @@ def run_create_image(
                 f"[generate-article:image] {Path(output).name} attempt {attempt + 1}/{CREATE_IMAGE_ATTEMPTS} failed: {last_error}",
                 file=sys.stderr,
             )
+            if result.returncode in IMAGE_BACKEND_FATAL_CODES:
+                break
             continue
         # The script writes into images/ relative to CWD.
         src = Path("images") / output
@@ -1480,7 +1413,7 @@ def run_create_image(
                 return True
         last_error = f"expected output not found at {src}"
         print(f"[generate-article:image] {Path(output).name} attempt {attempt + 1}/{CREATE_IMAGE_ATTEMPTS} {last_error}", file=sys.stderr)
-    print(f"[generate-article:image] {Path(output).name} exhausted create-image attempts: {last_error}", file=sys.stderr)
+    print(f"[generate-article:image] {Path(output).name} exhausted image backend attempts: {last_error}", file=sys.stderr)
     return False
 
 
@@ -3067,18 +3000,25 @@ def _generate_images(plan: ArticlePlan, target_dir: Path, images_dir: Path) -> d
     )
     ai_available = False
     if need_ai:
-        ai_available = (CREATE_IMAGE_BASH.exists() or CREATE_IMAGE_PS1.exists()) and bool(
-            resolve_comate_username_encrypted()
-        )
+        backend_status = image_backend_status()
+        ai_available = bool(backend_status.get("usable"))
+        if not ai_available:
+            problems = backend_status.get("problems") or ["unknown"]
+            print(
+                f"[generate-article:image] image backend {backend_status.get('backend') or 'unknown'} unusable: "
+                + "; ".join(str(p) for p in problems),
+                file=sys.stderr,
+            )
         if not ai_available and not AI_FALLBACK_HTML:
             msg = (
                 "AI image backend unavailable for AI-first slots.\n"
-                "Possible causes:\n"
-                f"  - /create-image wrapper missing (expected: {CREATE_IMAGE_BASH} or {CREATE_IMAGE_PS1})\n"
-                "  - COMATE_USERNAME_ENCRYPTED not in env AND no usable token under ~/.comate/login-user/.\n"
-                "Fix steps:\n"
-                "  1) Log in to Comate so ~/.comate/login-user/<username> exists, or\n"
-                "  2) export COMATE_USERNAME_ENCRYPTED=<your encrypted username>, then re-run, or\n"
+                f"Selected backend: {backend_status.get('backend') or 'unknown'} ({backend_status.get('source') or 'unresolved'})\n"
+                "Problems:\n"
+                + "".join(f"  - {p}\n" for p in (backend_status.get("problems") or ["unknown"]))
+                + "Fix steps:\n"
+                "  1) comate: log in to Comate so ~/.comate/login-user/<username> exists, or export COMATE_USERNAME_ENCRYPTED, or\n"
+                "  2) without the intranet: set TOM_WECHAT_IMAGE_BACKEND=openai|gemini|command and its env vars\n"
+                "     (python3 scripts/image_backend.py --check shows what is missing), or\n"
                 "  3) set TOM_WECHAT_AI_FALLBACK_HTML=1 to render AI-first slots through HTML."
             )
             os.chdir(cwd)

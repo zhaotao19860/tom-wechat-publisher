@@ -11,7 +11,7 @@ Usage:
 Generate mode (--generate-from):
   SOURCE  URL or local path of the source article to summarize/illustrate.
   Pulls supplementary web facts, composes a short WeChat Markdown (5-min read,
-  image-heavy), generates illustrations via the /create-image workflow,
+  image-heavy), generates illustrations via scripts/image_backend.py,
   then exits. If image generation fails, fix the prompt/article/backend and rerun;
   this wrapper does not switch to any alternate image backend.
   --track writes the content track (dns, l4-gateway, ai-gateway, medical) into
@@ -47,9 +47,16 @@ Environment:
   WECHAT_THEME        optional default theme; defaults to the profile theme
   WECHAT_HIGHLIGHT    optional default code highlight theme
   TOM_WECHAT_IMAGE_VISUAL_THEME  required for illustrated generate mode unless --no-images
-  COMATE_USERNAME_ENCRYPTED      optional for /create-image; auto-derived from ~/.comate/login-user when missing
-  TOM_WECHAT_CREATE_IMAGE_BASH   override path to the create-image wrapper
-  TOM_WECHAT_CREATE_IMAGE_PS1    override path to the create-image PowerShell wrapper
+  TOM_WECHAT_IMAGE_BACKEND       AI image backend: comate (default) | openai | gemini | command;
+                                 overrides the profile's image_backend. Check with
+                                 python3 scripts/image_backend.py --check
+  TOM_WECHAT_IMAGE_MODEL / TOM_WECHAT_IMAGE_BASE_URL / TOM_WECHAT_IMAGE_API_KEY
+                                 openai/gemini settings; the key may live in Keychain
+                                 service tom-wechat-publisher-image (account = API host)
+  TOM_WECHAT_IMAGE_COMMAND       argv template for the command backend
+  COMATE_USERNAME_ENCRYPTED      optional for the comate backend; auto-derived from ~/.comate/login-user when missing
+  TOM_WECHAT_CREATE_IMAGE_BASH   override path to the create-image wrapper (comate backend)
+  TOM_WECHAT_CREATE_IMAGE_PS1    override path to the create-image PowerShell wrapper (comate backend)
   TOM_WECHAT_PYTHON              optional Python executable override; Python 3.9+ is required
   TOM_WECHAT_CHECK_PROSE         optional human-writing prose checker override
   TOM_WECHAT_HISTORY_ROOT        historical article root; defaults to ~/Desktop/wechat
@@ -421,6 +428,7 @@ resolve_check_prose() {
     "$HOME/.codex/skills/human-writing/scripts/check_prose.py"
     "$HOME/.agents/skills/human-writing/scripts/check_prose.py"
     "$HOME/.comate/skills/human-writing/scripts/check_prose.py"
+    "$HOME/.claude/skills/human-writing/scripts/check_prose.py"
   )
   for candidate in "${candidates[@]}"; do
     if [[ -f "$candidate" ]]; then
@@ -472,6 +480,9 @@ if [[ "$account_profile" != "default" ]]; then
   printf 'Account profile: %s (%s), theme=%s, author=%s\n' \
     "${PROFILE_DISPLAY_NAME:-$account_profile}" "$account_profile" "$theme" "$author" >&2
 fi
+# Child scripts (generate_article.py -> image_backend.py) read the profile's
+# image_backend through this variable, so --account wins over an inherited value.
+export TOM_WECHAT_ACCOUNT="$account_profile"
 
 # ---- humanize mode ---------------------------------------------------------
 if [[ -n "$humanize_path" ]]; then
@@ -645,7 +656,7 @@ if [[ "$require_body_images" -eq 1 ]]; then
 fi
 
 if ! check_prose_script="$(resolve_check_prose)"; then
-  echo "ERROR: prose preflight checker not found; set TOM_WECHAT_CHECK_PROSE." >&2
+  echo "ERROR: prose preflight checker not found; install the human-writing skill (e.g. under ~/.claude/skills/human-writing) or set TOM_WECHAT_CHECK_PROSE." >&2
   exit 2
 fi
 wechat_failure_context="prose preflight: ${article}"

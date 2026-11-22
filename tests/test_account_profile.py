@@ -63,6 +63,11 @@ class AccountProfileTests(unittest.TestCase):
         self.assertEqual(values["PROFILE_TRACK"], "medical")
         self.assertEqual(values["PROFILE_APP_ID_ENV"], "WECHAT_MEDICAL_APP_ID")
         self.assertEqual(values["PROFILE_ALBUM"], "医学科普库")
+        self.assertEqual(values["PROFILE_IMAGE_BACKEND"], "")
+
+    def test_image_backend_is_optional_and_unset_by_default(self) -> None:
+        self.assertEqual(account_profile.load_profile("default")["image_backend"], "")
+        self.assertEqual(account_profile.load_profile("medical")["image_backend"], "")
 
 
 if __name__ == "__main__":
