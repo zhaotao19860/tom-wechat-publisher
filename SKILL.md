@@ -22,6 +22,7 @@ The skill supports more than one WeChat Official Account. Each account is a JSON
 - `publish_draft.sh` resolves the profile after argument parsing and prints `Account profile: ...`; before upload it prints `Target account: ...` and the masked AppID. Treat a wrong target account as a hard stop.
 - A dedicated profile history root is created on first generate-mode run so medical topic de-duplication never mixes with technical articles.
 - `accounts/*.json` must contain no secrets. Store credentials in environment variables or the account's Keychain service.
+- Optional `voice` and `voice_facts` name the account's voice card and confirmed first-person fact list. They usually live outside the repo, for example `~/.tom-wechat-autopilot/accounts/dns/voice.md` and `voice-facts.md`; `~` is expanded and relative paths resolve against `accounts/`. A path that is set but missing fails closed. They are exported as `PROFILE_VOICE` / `PROFILE_VOICE_FACTS`, and `voice_facts` feeds `voice_check.py --facts`.
 - Optional `image_backend` (`comate`, `openai`, `gemini`, `command`) picks that account's AI image backend. `accounts/medical.json` leaves it empty, which means the env var or the `comate` default decides. See 图片后端.
 
 ## Scope
@@ -176,6 +177,7 @@ The wrapper must verify:
 - Prepared images are JPEG, PNG, or GIF.
 - High-risk HTML/hybrid/mermaid specs contain `locked_facts`, and body labels are article-specific.
 - The delivered prose passed `human-writing/scripts/check_prose.py` after the last content edit.
+- `scripts/voice_check.py` ran after check_prose.py (warn mode by default; see Enforced revision gate).
 - Wenyan CLI is installed and executable for preview and upload.
 - The `mermaid` npm package is installed at the skill root when any body spec uses `render_mode: mermaid` (`cd ~/.comate/skills/tom-wechat-publisher && npm install`).
 - Upload is not attempted with `--dry-run`, `--render-only`, or theme-preview mode.
@@ -215,6 +217,7 @@ Every article this skill writes, rewrites, or polishes must go through the `huma
 2. Count concrete material. A 1200-plus-character Chinese article needs at least five specific items with a traceable origin, and they must form one real process rather than five adjacent opinions.
 3. When material is short, search first, then ask the user at most three questions, then shorten the article. Never pad with restated points, invented examples, or hypothetical people.
 4. Fix the speaking position. Decide what the author actually knows, what is inference, and where the judgment stops.
+5. If the account profile or the caller supplies a voice card (for example `voice.md`) and a first-person fact list, load them after human-writing. The voice card overrides human-writing's default tone, its forum-prose examples, and its "no author profile" clause, because it is the user's explicit tone instruction. Only facts on the first-person list, or facts the user stated in this conversation, may be written with 我. Commands the agent ran are reported without 我.
 
 ### While drafting
 
@@ -241,9 +244,21 @@ These cover the title, headings, body, image captions, and quoted material. One 
 
 After the Markdown is finalized and before rendering the preview:
 
+1. Before running check_prose.py, run one harsh-editor pass in a fresh context using `references/harsh-editor.md`. Give that context only the article, the voice card, the first-person fact list and `qa.md`, never the drafting history.
+2. Run check_prose.py, then voice_check.py:
+
 ```bash
 python3 ~/.codex/skills/human-writing/scripts/check_prose.py /absolute/path/article.md
+python3 -I ~/.comate/skills/tom-wechat-publisher/scripts/voice_check.py /absolute/path/article.md \
+  --facts /absolute/path/voice-facts.md
 ```
+
+`voice_check.py` counts what check_prose.py cannot see. Fails (需要修改) are stock frames such as 我原本以为 / 写得很硬 / 到这里为止, conclusion-style H2 such as 「A，B 才 C」, and first-person claims with no possible source such as 我第一件事就是 / 我见过的人. Warns (需要人工判断) are first-person experiences that no line of the fact list covers, sentence-length CV below 0.55, section-length CV below 0.45, more than 4 H2, no question mark in an article over 1200 Han characters, more than half of the paragraphs closing on a short verdict, dense 、 lists, and glossing terms for peers. Add `--json` for a machine-readable report. Standalone it defaults to `--mode block` (exit 1 on fails); the wrapper passes the mode from `TOM_WECHAT_VOICE_CHECK`.
+
+The wrapper runs voice_check.py right after check_prose.py:
+
+- `TOM_WECHAT_VOICE_CHECK=warn` (default) prints findings and continues, `block` stops on fails, `off` skips the check. Any other value is an error.
+- `--facts` comes from `TOM_WECHAT_VOICE_FACTS`, else from the account profile's `voice_facts`. Without a fact list every first-person experience line is a warn.
 
 The wrapper runs this checker before preview and upload. It looks for `human-writing/scripts/check_prose.py` under `~/.codex/skills`, `~/.agents/skills`, `~/.comate/skills` and `~/.claude/skills`, in that order. On a machine that has none of them (for example a home Mac running Claude Code), copy the whole `human-writing` skill directory from a machine that has it, e.g. `rsync -a work-mac:.codex/skills/human-writing ~/.claude/skills/`, or set `TOM_WECHAT_CHECK_PROSE` to an executable checker path; the override is tried first. A missing checker or non-zero result blocks the workflow. Run the gate again after every content edit, including edits between preview and upload.
 
@@ -274,6 +289,8 @@ bash ~/.comate/skills/tom-wechat-publisher/scripts/publish_draft.sh \
   --humanize /absolute/path/article.md \
   --score
 ```
+
+`--generate-from` no longer runs humanize by default; pass `--humanize` to run it on the generated article. Humanize no longer inserts 这一点很重要。 or trims 「A、B和C」 lists.
 
 Do not invent facts while polishing. Preserve source facts, causal wording, uncertainty, dates, product names, and quoted claims.
 

@@ -6,6 +6,18 @@
 
 ### 新增
 
+- `scripts/voice_check.py`（只用标准库，`python3 -I`）：检查 `check_prose.py` 看不到的篇章形状和说话姿态。失败项是套话框架（我原本以为、写得很硬、到这里为止等）、「A，B 才/就/还得 C」式结论句小标题、没有出处的亲历（我第一件事就是、我见过的人等）；提醒项是 voice facts 里对不上的第一人称经历、句长 CV < 0.55（至少 30 句）、节长 CV < 0.45（至少 3 节）、H2 多于 4 个、1200 汉字以上全文无问号、段尾短判断（末句 ≤ 18 汉字且含就/才/不/没/都/算/只/也/得）超过一半（至少 6 段）、顿号每千字 > 12、术语解释 ≥ 2 处。`--facts` 读可用第一人称事实清单，句子包含某行或与某行关键词重合（≥ 2 个且 ≥ 60%）即算有出处。`--mode block`（默认）有失败项退出 1，`--mode warn` 总是退出 0；`--json` 输出机器可读报告。阈值在作者 2021 年博客 63 篇上 0 失败（9 篇只有顿号或 H2 提醒），2026-10/11 的 50 篇公众号 21 篇有失败项。
+- `publish_draft.sh` 在 `check_prose.py` 之后跑 `voice_check.py`。`TOM_WECHAT_VOICE_CHECK=warn|block|off`，默认 `warn` 只打印不拦截；`--facts` 取 `TOM_WECHAT_VOICE_FACTS`，没有时取账号 profile 的 `voice_facts`。
+- 账号 profile 新增可选字段 `voice`、`voice_facts`（风格卡和第一人称事实清单的路径，展开 `~`，相对路径按 `accounts/` 解析，写了但文件不存在就报错），导出为 `PROFILE_VOICE`、`PROFILE_VOICE_FACTS`。
+- `references/harsh-editor.md`：定稿后、`check_prose.py` 之前在新上下文里跑一轮「毒舌编辑」改稿，作者和口气以风格卡为准。
+- `SKILL.md`：Before drafting 增加第 5 条（风格卡和第一人称事实清单优先于 human-writing 默认文风，agent 跑的命令不写「我」）；Enforced revision gate 增加毒舌编辑轮和 `voice_check.py`。
+
+### 修正
+
+- `--generate-from` 不再默认跑 humanize，需要时显式加 `--humanize`。
+- `humanize_article.py` 删掉 `_split_rigid_paragraphs`（会插入「这一点很重要。」）和 `_swap_three_part_lists`（把「A、B和C」删成「A和B」，丢事实）。
+- `generate_article.py` 兜底模板去掉「不在于……而是……」翻案句和「## 一句话总结」小节（通用、CVE、DMARC、封禁清单四类模板）。
+
 - 可插拔图片后端 `scripts/image_backend.py`：命令行和退出码与 `create-image` 的 `generate-image.sh` 一致，按 `TOM_WECHAT_IMAGE_BACKEND`、账号 profile 的 `image_backend`、默认 `comate` 的顺序选择后端。`comate` 原样 exec 内网脚本；`openai` 走 OpenAI 兼容的 `/images/generations` 和 `/images/edits`；`gemini` 走 `models/<model>:generateContent` 并解码内联图片；`command` 按 `TOM_WECHAT_IMAGE_COMMAND` 模板调用任意工具。密钥读 `TOM_WECHAT_IMAGE_API_KEY` 或钥匙串服务 `tom-wechat-publisher-image`，从不打印。`--check [--json]` 报告选中的后端和缺少的设置。
 - 账号 profile 新增可选字段 `image_backend`，`accounts/medical.json` 留空。
 
