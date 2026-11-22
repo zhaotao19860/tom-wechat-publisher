@@ -43,7 +43,7 @@ SECTION_CV_MIN = 0.45         # human median 0.83, AI 0.31 (lieflat paired data)
 SECTION_MIN_COUNT = 3
 H2_MAX = 4
 QUESTION_MIN_HAN = 1200       # only long articles must ask at least once
-JUDGMENT_END_RATIO_MAX = 0.5  # share of paragraphs closing on a short verdict
+JUDGMENT_END_RATIO_MAX = 0.4  # share of paragraphs closing on a short verdict
 JUDGMENT_END_MAX_HAN = 18
 JUDGMENT_MIN_PARAGRAPHS = 6   # needs this many multi-sentence paragraphs
 ENUMERATION_PER_K_MAX = 12.0  # 、 per 1000 Han characters; author blog 9.6
@@ -167,8 +167,17 @@ def fact_covers(sentence: str, clause: str, facts: list[str]) -> bool:
     return False
 
 
+JUDGMENT_TAIL_MAX_HAN = 8      # last clause after the final comma, e.g. 「这组指纹就不算数」
+
+
 def is_judgment_ending(sentence: str) -> bool:
-    return han_count(sentence) <= JUDGMENT_END_MAX_HAN and any(c in JUDGMENT_MARKERS for c in sentence)
+    if not any(c in JUDGMENT_MARKERS for c in sentence):
+        return False
+    if han_count(sentence) <= JUDGMENT_END_MAX_HAN:
+        return True
+    # A long sentence that still closes on a short verdict clause counts too.
+    tail = re.split(r"[，,；;]", sentence.rstrip("。！？!?"))[-1]
+    return han_count(tail) <= JUDGMENT_TAIL_MAX_HAN and any(c in JUDGMENT_MARKERS for c in tail)
 
 
 def _finding(rule: str, message: str) -> dict[str, str]:
