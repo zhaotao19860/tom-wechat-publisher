@@ -34,8 +34,14 @@ Humanize mode (--humanize):
   blader/humanizer + hardikpandya/stop-slop) from a WeChat Markdown article.
   Runs deterministic rewrites and scores the result on the 5-dim / 50-point
   Humanizer-zh rubric. Use --in-place to overwrite, --score to inspect only.
-  --humanize is also applied automatically at the end of --generate-from
-  unless --no-humanize is given.
+  --generate-from runs it on the generated article only when --humanize is
+  given (off by default; --no-humanize is accepted and keeps it off).
+
+Voice check:
+  After check_prose.py, scripts/voice_check.py counts what that checker cannot
+  see: stock frames, conclusion-style H2, unsourced first-person claims, even
+  sentence/section rhythm, missing questions and glossing. The default warn
+  mode prints findings and continues; block stops on fails.
 
 Environment:
   Wenyan owns WeChat credentials and account selection. Configure them with
@@ -59,6 +65,9 @@ Environment:
   TOM_WECHAT_CREATE_IMAGE_PS1    override path to the create-image PowerShell wrapper (comate backend)
   TOM_WECHAT_PYTHON              optional Python executable override; Python 3.9+ is required
   TOM_WECHAT_CHECK_PROSE         optional human-writing prose checker override
+  TOM_WECHAT_VOICE_CHECK         voice_check.py mode: warn (default) | block | off
+  TOM_WECHAT_VOICE_FACTS         first-person fact list for voice_check.py --facts;
+                                 overrides the account profile's voice_facts
   TOM_WECHAT_HISTORY_ROOT        historical article root; defaults to ~/Desktop/wechat
   TOM_WECHAT_FAILURE_NOTIFY      optional 如流 recipient for failure alerts; disabled by default
 
@@ -157,6 +166,7 @@ profile_footer_image=""
 profile_app_id_env="WECHAT_APP_ID"
 profile_app_secret_env="WECHAT_APP_SECRET"
 profile_keychain_service="tom-wechat-publisher"
+profile_voice_facts=""
 author_from_env=0
 [[ -n "${WECHAT_AUTHOR:-}" ]] && author_from_env=1
 author_explicit=0
@@ -189,7 +199,7 @@ generate_search_query=""
 generate_no_search=0
 generate_no_images=0
 generate_markdown=0
-generate_humanize=1  # default ON at end of --generate-from
+generate_humanize=0  # OFF by default; --humanize turns it on after --generate-from
 history_root_from_env=0
 [[ -n "${TOM_WECHAT_HISTORY_ROOT:-}" ]] && history_root_from_env=1
 history_explicit=0
@@ -455,6 +465,7 @@ if [[ "$account_profile" != "default" ]]; then
   profile_app_id_env="${PROFILE_APP_ID_ENV:-WECHAT_APP_ID}"
   profile_app_secret_env="${PROFILE_APP_SECRET_ENV:-WECHAT_APP_SECRET}"
   profile_keychain_service="${PROFILE_KEYCHAIN_SERVICE:-tom-wechat-publisher}"
+  profile_voice_facts="${PROFILE_VOICE_FACTS:-}"
   if [[ "$author_explicit" -eq 0 && "$author_from_env" -eq 0 && -n "${PROFILE_AUTHOR:-}" ]]; then
     author="$PROFILE_AUTHOR"
   fi
@@ -661,6 +672,38 @@ if ! check_prose_script="$(resolve_check_prose)"; then
 fi
 wechat_failure_context="prose preflight: ${article}"
 "$PYTHON" "$check_prose_script" "$article" >&2
+
+# ---- voice check -------------------------------------------------------------
+# Counts article shape and first-person claims that check_prose.py cannot see.
+# warn (default) prints and continues, block stops on fails, off skips it.
+voice_check_mode="${TOM_WECHAT_VOICE_CHECK:-warn}"
+case "$voice_check_mode" in
+  warn|block|off) ;;
+  *)
+    echo "ERROR: TOM_WECHAT_VOICE_CHECK must be warn, block or off (got: $voice_check_mode)" >&2
+    exit 2
+    ;;
+esac
+if [[ "$voice_check_mode" != "off" ]]; then
+  voice_facts="${TOM_WECHAT_VOICE_FACTS:-$profile_voice_facts}"
+  voice_check_cmd=("$PYTHON" -I "$script_dir/voice_check.py" "$article" --mode "$voice_check_mode")
+  if [[ -n "$voice_facts" ]]; then
+    voice_check_cmd+=(--facts "$voice_facts")
+  fi
+  wechat_failure_context="voice check: ${article}"
+  printf 'Voice check (%s mode)%s\n' "$voice_check_mode" "${voice_facts:+, facts: $voice_facts}" >&2
+  set +e
+  "${voice_check_cmd[@]}" >&2
+  voice_check_status=$?
+  set -e
+  if [[ "$voice_check_status" -ne 0 ]]; then
+    if [[ "$voice_check_mode" == "block" ]]; then
+      echo "ERROR: voice_check.py found blocking items (TOM_WECHAT_VOICE_CHECK=block); revise the article and rerun." >&2
+      exit "$voice_check_status"
+    fi
+    echo "WARNING: voice_check.py exited $voice_check_status in warn mode; continuing." >&2
+  fi
+fi
 
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/wechat-draft.XXXXXX")"
 cleanup() {

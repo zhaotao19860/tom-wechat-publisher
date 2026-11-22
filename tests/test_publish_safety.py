@@ -49,6 +49,7 @@ class PublishSafetyTests(unittest.TestCase):
         wenyan_leak_app_id: bool = False,
         notify_capture: bool = False,
         env_extra: dict[str, str] | None = None,
+        article_body: str = "# Test\n",
     ) -> tuple[subprocess.CompletedProcess[str], WrapperFixture]:
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -106,7 +107,7 @@ class PublishSafetyTests(unittest.TestCase):
             "  - '一川清浊自分流'\n"
             "  - '万径归关辨晦明'\n"
             "cover_typography: 'vertical'\n"
-            "---\n\n# Test\n",
+            "---\n\n" + article_body,
             encoding="utf-8",
         )
         env = os.environ.copy()
@@ -323,6 +324,88 @@ class PublishSafetyTests(unittest.TestCase):
             if line.startswith("publish ")
         )
         self.assertIn("med-clinical", publish)
+
+    VOICE_FAIL_BODY = "# Test\n\n我原本以为打开这项校验只会更安全，结果并不是这样。\n"
+    VOICE_CLAIM_BODY = "# Test\n\n我做了十年 DNS，这种事见得多，排查起来也不慌。\n"
+
+    def test_voice_check_warn_is_default_and_continues(self) -> None:
+        result, fixture = self.run_wrapper_with_fakes(upload=False, article_body=self.VOICE_FAIL_BODY)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Voice check (warn mode)", result.stderr)
+        self.assertIn("我原本以为", result.stderr)
+        self.assertIn("render ", fixture.wenyan_log.read_text(encoding="utf-8"))
+
+    def test_voice_check_block_stops_before_render(self) -> None:
+        result, fixture = self.run_wrapper_with_fakes(
+            upload=False,
+            article_body=self.VOICE_FAIL_BODY,
+            env_extra={"TOM_WECHAT_VOICE_CHECK": "block"},
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("TOM_WECHAT_VOICE_CHECK=block", result.stderr)
+        self.assertNotIn("render ", fixture.wenyan_log.read_text(encoding="utf-8"))
+
+    def test_voice_check_block_passes_clean_article(self) -> None:
+        result, fixture = self.run_wrapper_with_fakes(upload=False, env_extra={"TOM_WECHAT_VOICE_CHECK": "block"})
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Voice check (block mode)", result.stderr)
+        self.assertIn("render ", fixture.wenyan_log.read_text(encoding="utf-8"))
+
+    def test_voice_check_off_skips_it(self) -> None:
+        result, fixture = self.run_wrapper_with_fakes(
+            upload=False,
+            article_body=self.VOICE_FAIL_BODY,
+            env_extra={"TOM_WECHAT_VOICE_CHECK": "off"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Voice check", result.stderr)
+        self.assertNotIn("我原本以为", result.stderr)
+        self.assertIn("render ", fixture.wenyan_log.read_text(encoding="utf-8"))
+
+    def test_voice_check_rejects_unknown_mode(self) -> None:
+        result, fixture = self.run_wrapper_with_fakes(upload=False, env_extra={"TOM_WECHAT_VOICE_CHECK": "strict"})
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("TOM_WECHAT_VOICE_CHECK must be warn, block or off", result.stderr)
+        self.assertNotIn("render ", fixture.wenyan_log.read_text(encoding="utf-8"))
+
+    def test_voice_check_skipped_when_prose_checker_fails(self) -> None:
+        result, _ = self.run_wrapper_with_fakes(upload=False, checker_exit=7, article_body=self.VOICE_FAIL_BODY)
+
+        self.assertEqual(result.returncode, 7)
+        self.assertNotIn("Voice check", result.stderr)
+
+    def test_voice_check_uses_facts_from_env(self) -> None:
+        result, _ = self.run_wrapper_with_fakes(upload=False, article_body=self.VOICE_CLAIM_BODY)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("待核对 voice_facts", result.stderr)
+
+        facts_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, facts_dir, True)
+        facts = facts_dir / "voice-facts.md"
+        facts.write_text("- 做 DNS 十多年，2011 年开始做运营商缓存\n", encoding="utf-8")
+        result, _ = self.run_wrapper_with_fakes(
+            upload=False,
+            article_body=self.VOICE_CLAIM_BODY,
+            env_extra={"TOM_WECHAT_VOICE_FACTS": str(facts)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"facts: {facts}", result.stderr)
+        self.assertNotIn("待核对 voice_facts", result.stderr)
+
+    def test_voice_facts_env_overrides_profile_field(self) -> None:
+        wrapper = (ROOT / "scripts/publish_draft.sh").read_text(encoding="utf-8")
+        self.assertIn('profile_voice_facts="${PROFILE_VOICE_FACTS:-}"', wrapper)
+        self.assertIn('voice_facts="${TOM_WECHAT_VOICE_FACTS:-$profile_voice_facts}"', wrapper)
+        prose = wrapper.index('"$PYTHON" "$check_prose_script" "$article"')
+        voice = wrapper.index('"$script_dir/voice_check.py"')
+        render = wrapper.index("prepare_cmd=(")
+        self.assertLess(prose, voice)
+        self.assertLess(voice, render)
 
 
 if __name__ == "__main__":

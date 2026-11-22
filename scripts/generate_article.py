@@ -841,9 +841,7 @@ def _render_cve_markdown(plan: ArticlePlan, facts: list[str], sources: list[dict
         "- 给 RPZ 配置做资产标记，至少区分本地文件 RPZ 和 XFR 更新 RPZ。",
         "- 对承载办公网、网关、Kubernetes NodeLocal DNS 或内部递归链路的实例，按业务影响调整升级优先级。",
         "",
-        "## 一句话总结",
-        "",
-        f"{profile['cve']} 的风险不在范围大，而在条件窄但位置关键：如果你的 {profile['product']} 命中多线程、XFR RPZ 和特定 RPZ trigger 组合，就尽快升级到 {fixed}；其他环境按配置命中情况有序排查。",
+        f"{profile['product']} 同时开了多线程、XFR RPZ 和特定 RPZ trigger 组合的，尽快升级到 {fixed}；其他环境按配置逐项排查。",
         "",
         "## 参考资料",
         "",
@@ -944,8 +942,6 @@ def _render_dmarc_np_markdown(plan: ArticlePlan, facts: list[str], sources: list
         "- 在邮件安全验收里加入不存在子域的 DMARC 测试样例，覆盖 NXDOMAIN 和 compact denial 两种返回。",
         "- 对自研或可配置的 DMARC 评估器，增加 NXNAME 识别或显式记录不支持 RFC 9824 的风险。",
         "- 对外部邮件网关，向供应商确认 `np`、DNSSEC、RFC 9824 的处理方式，不要只看是否支持 RFC 9989。",
-        "",
-        "## 一句话总结",
         "",
         "DMARC `np` 是个有用的新工具，但它站在 DNS 不存在性判断之上。只要 DNSSEC compact denial 把 NXDOMAIN 信号换成 NOERROR + NXNAME，而收件方又只看响应码，`np` 就可能在最需要它的地方静悄悄失效。",
         "",
@@ -1053,9 +1049,7 @@ def _render_blocklist_markdown(plan: ArticlePlan, facts: list[str], sources: lis
         "- 把自动同步改成可审计流程：拉取、校验、灰度、回滚和申诉要能串起来。",
         "- 对公共解析器尤其要保守：没有清晰授权和撤销机制，就不要把外部名单直接变成解析结果。",
         "",
-        "## 一句话总结",
-        "",
-        f"{resolver} 这次最值得看的不是“有没有封锁”，而是它把“拿到名单”和“执行封锁”分开了：DNS 可以承载策略，但公共解析器更需要清楚的授权、透明度和纠错机制。",
+        f"{resolver} 这次把“拿到名单”和“执行封锁”分成了两步。公共解析器要接外部名单，先得有清楚的授权、透明度和纠错机制。",
         "",
         "## 参考资料",
         "",
@@ -1140,7 +1134,7 @@ def render_markdown(plan: ArticlePlan, facts: list[str], sources: list[dict], so
         else:
             parts.append(f"这部分先看一个事实：{primary}。")
             parts.append("")
-            parts.append(f"它的意义不在于制造紧张感，而是帮助判断影响范围。对读者来说，关键是分清哪些场景真的命中，哪些只是概念上相关。")
+            parts.append("先分清哪些场景真的命中，哪些只是概念上相关。")
             parts.append("")
             parts.append(f"接下来要关注的是：{secondary}。如果它和自己的业务、资产或运维链路有关，就需要提前留出处理窗口。")
             parts.append("")
@@ -1156,7 +1150,7 @@ def render_markdown(plan: ArticlePlan, facts: list[str], sources: list[dict], so
             "",
         ])
     else:
-        parts.extend(["## 一句话总结", "", f"{topic_name} 这件事不用放大，也别忽略：先看事实，再看影响范围，最后落到今天能执行的动作。", "", "## 参考资料", "", source_lines, ""])
+        parts.extend(["## 参考资料", "", source_lines, ""])
     return "\n".join(parts)
 
 

@@ -9,8 +9,11 @@ Implements the rule set curated from
 
 This script is intentionally a deterministic text rewriter (no LLM call)
 so the result is reproducible, reviewable, and never depends on a network
-round-trip. It scores the result on the 5-dimension / 50-point scale from
-the Humanizer-zh SKILL.md.
+round-trip. It no longer inserts filler sentences or trims list items:
+the old rigid-paragraph splitter (which injected 这一点很重要。) and the
+three-part list trimmer (which deleted the third item) were removed
+2026-11-22 because they added AI phrasing and lost facts. It scores the
+result on the 5-dimension / 50-point scale from the Humanizer-zh SKILL.md.
 
 Usage:
   humanize_article.py article.md --in-place
@@ -141,20 +144,6 @@ def _strip_inline_bold_in_lists(text: str) -> tuple[str, int]:
         count += 1
         # Keep the leading label but drop the bold/colon, append a full stop.
         return f"{match.group(1)}{match.group(2).strip()}："
-
-    return pattern.sub(replace, text), count
-
-
-def _swap_three_part_lists(text: str) -> tuple[str, int]:
-    """Trim obvious three-part lists like 'A、B和C' inside paragraphs."""
-    count = 0
-    pattern = re.compile(r"([\u4e00-\u9fffA-Za-z]{1,8})、([\u4e00-\u9fffA-Za-z]{1,8})和([\u4e00-\u9fffA-Za-z]{1,8})(?=[，。；、\s\n])")
-
-    def replace(match: re.Match) -> str:
-        nonlocal count
-        count += 1
-        # Keep only the first two parts to break the rhythm.
-        return f"{match.group(1)}和{match.group(2)}"
 
     return pattern.sub(replace, text), count
 
@@ -329,32 +318,6 @@ def _flatten_emotional_tail(text: str) -> tuple[str, int]:
     return new_out, count
 
 
-def _split_rigid_paragraphs(text: str) -> tuple[str, int]:
-    """If three consecutive sentences have nearly identical length, break
-    one with a short punchy sentence. This is a heuristic; safest to
-    leave alone if we can't find three equal-length sentences.
-    """
-    count = 0
-    paragraphs = re.split(r"(\n{2,})", text)
-    for i, block in enumerate(paragraphs):
-        if "\n" in block and not block.strip().startswith("#"):
-            continue
-        # Find three consecutive sentences in the same paragraph.
-        sentences = [s for s in re.split(r"(?<=[。！？])", block) if s.strip()]
-        if len(sentences) < 4:
-            continue
-        # Detect "all-similar" rhythm.
-        lens = [len(s.strip()) for s in sentences[:4]]
-        if max(lens) - min(lens) > 18:
-            continue
-        # Insert a short 6-10 char sentence after the 2nd.
-        short = "这一点很重要。"
-        new_block = "".join(sentences[:2]) + short + "".join(sentences[2:])
-        paragraphs[i] = new_block
-        count += 1
-    return "".join(paragraphs), count
-
-
 # ---------------------------------------------------------------------------
 # Quality scoring (Humanizer-zh 5-dim / 50-point rubric)
 # ---------------------------------------------------------------------------
@@ -486,11 +449,7 @@ def humanize(text: str) -> HumanizeResult:
     changes += n
     text, n = _strip_inline_bold_in_lists(text)
     changes += n
-    text, n = _swap_three_part_lists(text)
-    changes += n
     text, n = _straighten_smart_quotes(text)
-    changes += n
-    text, n = _split_rigid_paragraphs(text)
     changes += n
     score = score_text(text)
     return HumanizeResult(text=text, changes=changes, score=score)

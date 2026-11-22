@@ -15,6 +15,13 @@ Optional ``image_backend`` picks the AI image backend for this account
 (``comate``, ``openai``, ``gemini`` or ``command``; see image_backend.py). Empty
 means "not set": env TOM_WECHAT_IMAGE_BACKEND decides, else ``comate``.
 
+Optional ``voice`` and ``voice_facts`` point at the account's voice card and
+its confirmed first-person fact list (both usually live outside this repo,
+e.g. ``~/.tom-wechat-autopilot/accounts/dns/voice.md``). ``~`` is expanded and
+relative paths resolve against ``accounts/``. A path that is set but does not
+name an existing file fails closed. publish_draft.sh passes ``voice_facts`` to
+voice_check.py unless TOM_WECHAT_VOICE_FACTS overrides it.
+
 CLI used by publish_draft.sh::
 
     account_profile.py shell --profile medical
@@ -49,6 +56,8 @@ DEFAULT_VALUES: dict[str, Any] = {
     "footer_image": "",
     "image_visual_theme": "",
     "image_backend": "",
+    "voice": "",
+    "voice_facts": "",
     "preview_themes": [],
     "cover_styles": [],
 }
@@ -68,7 +77,10 @@ _STRING_FIELDS = {
     "footer_image",
     "image_visual_theme",
     "image_backend",
+    "voice",
+    "voice_facts",
 }
+_PATH_FIELDS = ("voice", "voice_facts")
 _IMAGE_BACKENDS = {"", "comate", "openai", "gemini", "command"}
 _ALLOWED_FIELDS = _STRING_FIELDS | _LIST_FIELDS
 
@@ -93,6 +105,18 @@ def _clean_list(value: object, field: str) -> list[str]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ProfileError(f"profile field {field} must be a list of strings")
     return [item.strip() for item in value if item.strip()]
+
+
+def _resolve_file(value: str, field: str) -> str:
+    """Expand ``~``, resolve relative paths against accounts/, require a file."""
+    if not value:
+        return ""
+    path = Path(os.path.expanduser(value))
+    if not path.is_absolute():
+        path = PROFILE_DIR / path
+    if not path.is_file():
+        raise ProfileError(f"profile field {field} does not name an existing file: {path}")
+    return str(path)
 
 
 def load_profile(name: str = DEFAULT_PROFILE) -> dict[str, Any]:
@@ -148,6 +172,8 @@ def load_profile(name: str = DEFAULT_PROFILE) -> dict[str, Any]:
     data["image_backend"] = data["image_backend"].lower()
     if data["image_backend"] not in _IMAGE_BACKENDS:
         raise ProfileError("image_backend must be empty or one of: comate, openai, gemini, command")
+    for field in _PATH_FIELDS:
+        data[field] = _resolve_file(data[field], field)
 
     data["history_root"] = os.path.expanduser(data["history_root"])
     return data
@@ -169,6 +195,8 @@ def shell_values(profile: dict[str, Any]) -> dict[str, str]:
         "PROFILE_FOOTER_IMAGE": str(profile["footer_image"]),
         "PROFILE_IMAGE_VISUAL_THEME": str(profile["image_visual_theme"]),
         "PROFILE_IMAGE_BACKEND": str(profile["image_backend"]),
+        "PROFILE_VOICE": str(profile["voice"]),
+        "PROFILE_VOICE_FACTS": str(profile["voice_facts"]),
         "PROFILE_PREVIEW_THEMES": " ".join(str(item) for item in profile["preview_themes"]),
         "PROFILE_COVER_STYLES": ",".join(str(item) for item in profile["cover_styles"]),
     }
