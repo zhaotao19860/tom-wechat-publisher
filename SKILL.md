@@ -22,6 +22,7 @@ The skill supports more than one WeChat Official Account. Each account is a JSON
 - `publish_draft.sh` resolves the profile after argument parsing and prints `Account profile: ...`; before upload it prints `Target account: ...` and the masked AppID. Treat a wrong target account as a hard stop.
 - A dedicated profile history root is created on first generate-mode run so medical topic de-duplication never mixes with technical articles.
 - `accounts/*.json` must contain no secrets. Store credentials in environment variables or the account's Keychain service.
+- Optional `image_backend` (`comate`, `openai`, `gemini`, `command`) picks that account's AI image backend. `accounts/medical.json` leaves it empty, which means the env var or the `comate` default decides. See 图片后端.
 
 ## Scope
 
@@ -180,7 +181,7 @@ The wrapper must verify:
 - Upload is not attempted with `--dry-run`, `--render-only`, or theme-preview mode.
 
 Use `--keep-temp` while diagnosing problems. Temporary output otherwise belongs under the system temporary directory and is removed on exit.
-Failure notifications are disabled by default. Set `TOM_WECHAT_FAILURE_NOTIFY` to an explicit 如流 recipient to opt in.
+Failure notifications are disabled by default. Set `TOM_WECHAT_FAILURE_NOTIFY` to an explicit 如流 recipient to opt in. Sending needs the intranet `infoflow-message-group` skill under `~/.comate/skills`; when it is missing the wrapper logs `[notify] 如流通知跳过 (... infoflow=missing)` and keeps the original exit code.
 
 ## Mandatory Topic History Check
 
@@ -244,7 +245,7 @@ After the Markdown is finalized and before rendering the preview:
 python3 ~/.codex/skills/human-writing/scripts/check_prose.py /absolute/path/article.md
 ```
 
-The wrapper runs this checker before preview and upload. Set `TOM_WECHAT_CHECK_PROSE` to an executable checker path when the default `human-writing` location is unavailable; the override is tried first. A missing checker or non-zero result blocks the workflow. Run the gate again after every content edit, including edits between preview and upload.
+The wrapper runs this checker before preview and upload. It looks for `human-writing/scripts/check_prose.py` under `~/.codex/skills`, `~/.agents/skills`, `~/.comate/skills` and `~/.claude/skills`, in that order. On a machine that has none of them (for example a home Mac running Claude Code), copy the whole `human-writing` skill directory from a machine that has it, e.g. `rsync -a work-mac:.codex/skills/human-writing ~/.claude/skills/`, or set `TOM_WECHAT_CHECK_PROSE` to an executable checker path; the override is tried first. A missing checker or non-zero result blocks the workflow. Run the gate again after every content edit, including edits between preview and upload.
 
 Treat a non-zero exit as a blocking failure and keep revising until the banned items reach zero. Context-dependent warnings still need a manual pass. When the script flags mechanical listing, uniform paragraph shape, repeated signposts, or stacked metaphors, rewrite rather than dismiss it.
 
@@ -338,7 +339,7 @@ Before generating the cover:
    Report which style was chosen and which one it followed. Any style in the list is acceptable for any topic.
 
 2. Allowed styles, in cycle order, are: `水墨写意`, `工笔重彩`, `青绿山水`, `宋画风`, `敦煌壁画风`, `文人画`, and `新中式国风`. This exact order defines the round-robin sequence in step 1, and it is kept in sync with `DEFAULT_STYLES` in `scripts/next_cover_style.py`. The cover scene and focal subject should suit the chosen style (for a flower-and-bird 花鸟, an interior, a figure, or an object composition, do not force a landscape), while still expressing the article's concept.
-3. Generate the cover through the `create-image` skill or its bundled image-generation wrapper. The cover must be genuinely AI-generated.
+3. Generate the cover through `scripts/image_backend.py` (same CLI as the `create-image` wrapper, which stays the default backend; see 图片后端). The cover must be genuinely AI-generated.
 4. Use a 2.35:1 composition suitable for a WeChat headline cover. Generate at 16:9 when the image API does not support 2.35:1, then crop deliberately to 1800x766 while preserving the focal subject. Use the bundled helper; it needs only macOS `sips`, so do not reach for Pillow (it is not installed in the system Python and `pip install` is blocked by PEP 668):
 
    ```bash
@@ -544,6 +545,28 @@ Useful scripts:
 python3 ~/.comate/skills/tom-wechat-publisher/scripts/ocr_validate.py IMAGE
 python3 ~/.comate/skills/tom-wechat-publisher/scripts/compare_body_images.py ARTICLE_DIR
 ```
+
+## 图片后端
+
+AI 封面和 AI 正文图都走 `scripts/image_backend.py`。它的命令行和 `create-image` 的 `generate-image.sh` 一样（`--prompt`、`--output <文件名>`、`--input`、`--resolution 1K|2K|4K`、`--aspect-ratio`），图片写到 `./images/<output>`，退出码沿用 0/2/3/4/5/10/11/12/13。`generate_article.py` 和 `compare_body_images.py` 都通过它出图，生成前用 `--check` 判断后端能不能用。
+
+选择顺序是环境变量 `TOM_WECHAT_IMAGE_BACKEND`，其次账号 profile 的 `image_backend` 字段（`--account` 或 `TOM_WECHAT_ACCOUNT` 指定的账号），都没有时用 `comate`。
+
+| 后端 | 用途 | 需要的设置 |
+| --- | --- | --- |
+| `comate` | 默认。原样调用内网 `create-image` 的 `generate-image.sh` | Comate 登录态或 `COMATE_USERNAME_ENCRYPTED`；`TOM_WECHAT_CREATE_IMAGE_BASH` 仍可覆盖脚本路径 |
+| `openai` | OpenAI 兼容的 `/images/generations`，带 `--input` 时走 `/images/edits` | `TOM_WECHAT_IMAGE_MODEL`；`TOM_WECHAT_IMAGE_BASE_URL` 默认 `https://api.openai.com/v1`；`TOM_WECHAT_IMAGE_SIZES` 列出模型接受的尺寸，默认 `1024x1024,1536x1024,1024x1536` |
+| `gemini` | Google `models/<model>:generateContent`，读取返回的内联图片（Nano Banana 一类 `gemini-*-image` 模型） | `TOM_WECHAT_IMAGE_MODEL`；`TOM_WECHAT_IMAGE_BASE_URL` 默认 `https://generativelanguage.googleapis.com/v1beta` |
+| `command` | 任意其他工具 | `TOM_WECHAT_IMAGE_COMMAND`，argv 模板，占位符 `{prompt} {output} {input} {aspect} {resolution}`，不经过 shell，`{output}` 是必须写入的绝对路径 |
+
+`openai` 和 `gemini` 的密钥先读 `TOM_WECHAT_IMAGE_API_KEY`，再读 macOS 钥匙串，服务名 `tom-wechat-publisher-image`，账户名是 base URL 的主机名：
+
+```bash
+security add-generic-password -U -s tom-wechat-publisher-image -a generativelanguage.googleapis.com -w
+python3 ~/.comate/skills/tom-wechat-publisher/scripts/image_backend.py --check
+```
+
+`--check` 打印选中的后端、来源、缺什么，不打印密钥。宽高比会同时写进提示词，因为不少模型会忽略尺寸参数。超时和重试沿用 `TOM_WECHAT_CREATE_IMAGE_TIMEOUT`、`TOM_WECHAT_CREATE_IMAGE_ATTEMPTS`，只重试网络错误、429 和 5xx。后端不可用时仍按 `TOM_WECHAT_AI_FALLBACK_HTML` 决定是退回 HTML 还是报错，不会自动换到另一个 AI 后端。
 
 ## Failure Diagnosis
 

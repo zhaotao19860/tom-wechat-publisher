@@ -2,6 +2,19 @@
 
 本文件记录 `tom-wechat-publisher` 的重要能力变更。
 
+## 2026-11-22
+
+### 新增
+
+- 可插拔图片后端 `scripts/image_backend.py`：命令行和退出码与 `create-image` 的 `generate-image.sh` 一致，按 `TOM_WECHAT_IMAGE_BACKEND`、账号 profile 的 `image_backend`、默认 `comate` 的顺序选择后端。`comate` 原样 exec 内网脚本；`openai` 走 OpenAI 兼容的 `/images/generations` 和 `/images/edits`；`gemini` 走 `models/<model>:generateContent` 并解码内联图片；`command` 按 `TOM_WECHAT_IMAGE_COMMAND` 模板调用任意工具。密钥读 `TOM_WECHAT_IMAGE_API_KEY` 或钥匙串服务 `tom-wechat-publisher-image`，从不打印。`--check [--json]` 报告选中的后端和缺少的设置。
+- 账号 profile 新增可选字段 `image_backend`，`accounts/medical.json` 留空。
+
+### 改进
+
+- `generate_article.py`（以及调用它的 `compare_body_images.py`）改为通过 `image_backend.py` 出图，生成前的可用性检查改问 `image_backend.py --check`；参数、依赖、配置、输入类错误（退出码 2/3/4/5）不再重试。`TOM_WECHAT_CREATE_IMAGE_BASH`/`_PS1` 继续覆盖 comate 脚本路径。不设新变量时本机行为不变。
+- `publish_draft.sh` 导出 `TOM_WECHAT_ACCOUNT`，让子进程读到当前账号的 `image_backend`；`check_prose.py` 查找路径加入 `~/.claude/skills/human-writing/scripts/check_prose.py`。
+- 补测试：图片后端的请求结构、选择优先级、`--check`、退出码；如流通知在 `infoflow-message-group` 缺失时跳过并保留原退出码。
+
 ## 2026-11-15
 
 ### 新增
