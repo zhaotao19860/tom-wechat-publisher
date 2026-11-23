@@ -2,6 +2,15 @@
 
 本文件记录 `tom-wechat-publisher` 的重要能力变更。
 
+## 2026-11-23
+
+### 新增
+
+- 正文长度上限：`voice_check.py` 新增失败项 `too_long`，正文汉字（不算 frontmatter、代码块、图片行、HTML、URL 和 `## 参考资料` 及之后）超过上限就失败。上限取 `--max-han`，否则 `TOM_WECHAT_MAX_HAN`，否则 1500；0 关闭。`--json` 报告多一个 `max_han` 字段。
+- 账号 profile 新增可选字段 `max_han`（≥0 的整数，默认不设），导出为 `PROFILE_MAX_HAN`；`publish_draft.sh` 有值时传 `--max-han`，即 profile 的值优先于 `TOM_WECHAT_MAX_HAN`。
+- `generate_article.py` 用同样的口径数正文汉字，超过上限时在 stderr 打 `[generate-article:length] WARNING`（不拦截，拦截交给 voice_check）。
+- `SKILL.md` Before drafting 新增第 4 条：按 1500 汉字以内规划（一条主线、两三节、少背景），超长时整段删掉不在主线上的段落或小节，不逐句压缩；`references/harsh-editor.md` 的「不许做」同步加上这一条。
+
 ## 2026-11-22
 
 ### 新增

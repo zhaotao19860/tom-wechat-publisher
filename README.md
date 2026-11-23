@@ -441,7 +441,7 @@ bash ./scripts/publish_draft.sh \
 
 预览和上传前都会运行 `human-writing` 的 `check_prose.py`。默认从已安装的 Skill 路径查找；需要使用组织内副本时，设置 `TOM_WECHAT_CHECK_PROSE` 为 checker 的可执行路径。找不到 checker 或检查返回非零都会阻断流程，正文修改后必须重新检查。
 
-`check_prose.py` 之后紧接着跑 `scripts/voice_check.py`（只用标准库），数套话框架、结论句小标题、没有出处的第一人称经历、句长和节长太匀、全文没有问号等 check_prose 看不到的东西。`TOM_WECHAT_VOICE_CHECK` 取 `warn`（默认，只打印）、`block`（有失败项就停）或 `off`；`TOM_WECHAT_VOICE_FACTS` 指定可用第一人称事实清单，不设时用账号 profile 的 `voice_facts`。定稿前先在新上下文里按 `references/harsh-editor.md` 改一遍稿。
+`check_prose.py` 之后紧接着跑 `scripts/voice_check.py`（只用标准库），数套话框架、结论句小标题、没有出处的第一人称经历、句长和节长太匀、全文没有问号等 check_prose 看不到的东西。`TOM_WECHAT_VOICE_CHECK` 取 `warn`（默认，只打印）、`block`（有失败项就停）或 `off`；`TOM_WECHAT_VOICE_FACTS` 指定可用第一人称事实清单，不设时用账号 profile 的 `voice_facts`。正文汉字超过上限（默认 1500，`TOM_WECHAT_MAX_HAN` 或账号 profile 的 `max_han` 可改，0 关闭）时 voice_check 报失败项 `too_long`。定稿前先在新上下文里按 `references/harsh-editor.md` 改一遍稿。
 
 ### 图片规格和确定性信息图
 

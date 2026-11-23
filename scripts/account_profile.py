@@ -22,6 +22,10 @@ relative paths resolve against ``accounts/``. A path that is set but does not
 name an existing file fails closed. publish_draft.sh passes ``voice_facts`` to
 voice_check.py unless TOM_WECHAT_VOICE_FACTS overrides it.
 
+Optional ``max_han`` (integer >= 0) caps the article body's Han characters for
+voice_check.py's ``too_long`` fail. Unset (null) means TOM_WECHAT_MAX_HAN, else
+1500; 0 disables the cap. When set it overrides TOM_WECHAT_MAX_HAN.
+
 CLI used by publish_draft.sh::
 
     account_profile.py shell --profile medical
@@ -60,6 +64,7 @@ DEFAULT_VALUES: dict[str, Any] = {
     "voice_facts": "",
     "preview_themes": [],
     "cover_styles": [],
+    "max_han": None,
 }
 
 _LIST_FIELDS = {"preview_themes", "cover_styles"}
@@ -82,7 +87,8 @@ _STRING_FIELDS = {
 }
 _PATH_FIELDS = ("voice", "voice_facts")
 _IMAGE_BACKENDS = {"", "comate", "openai", "gemini", "command"}
-_ALLOWED_FIELDS = _STRING_FIELDS | _LIST_FIELDS
+_INT_FIELDS = {"max_han"}
+_ALLOWED_FIELDS = _STRING_FIELDS | _LIST_FIELDS | _INT_FIELDS
 
 
 class ProfileError(ValueError):
@@ -105,6 +111,14 @@ def _clean_list(value: object, field: str) -> list[str]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ProfileError(f"profile field {field} must be a list of strings")
     return [item.strip() for item in value if item.strip()]
+
+
+def _clean_count(value: object, field: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ProfileError(f"profile field {field} must be an integer >= 0 or null")
+    return value
 
 
 def _resolve_file(value: str, field: str) -> str:
@@ -156,6 +170,9 @@ def load_profile(name: str = DEFAULT_PROFILE) -> dict[str, Any]:
     for field in _LIST_FIELDS:
         if field in raw:
             data[field] = _clean_list(raw[field], field)
+    for field in _INT_FIELDS:
+        if field in raw:
+            data[field] = _clean_count(raw[field], field)
 
     if not data["display_name"]:
         data["display_name"] = name
@@ -199,6 +216,7 @@ def shell_values(profile: dict[str, Any]) -> dict[str, str]:
         "PROFILE_VOICE_FACTS": str(profile["voice_facts"]),
         "PROFILE_PREVIEW_THEMES": " ".join(str(item) for item in profile["preview_themes"]),
         "PROFILE_COVER_STYLES": ",".join(str(item) for item in profile["cover_styles"]),
+        "PROFILE_MAX_HAN": "" if profile.get("max_han") is None else str(profile["max_han"]),
     }
     return values
 

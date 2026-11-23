@@ -66,6 +66,8 @@ Environment:
   TOM_WECHAT_PYTHON              optional Python executable override; Python 3.9+ is required
   TOM_WECHAT_CHECK_PROSE         optional human-writing prose checker override
   TOM_WECHAT_VOICE_CHECK         voice_check.py mode: warn (default) | block | off
+  TOM_WECHAT_MAX_HAN             voice_check.py body Han cap (default 1500, 0 disables);
+                                 the account profile's max_han overrides it
   TOM_WECHAT_VOICE_FACTS         first-person fact list for voice_check.py --facts;
                                  overrides the account profile's voice_facts
   TOM_WECHAT_HISTORY_ROOT        historical article root; defaults to ~/Desktop/wechat
@@ -167,6 +169,7 @@ profile_app_id_env="WECHAT_APP_ID"
 profile_app_secret_env="WECHAT_APP_SECRET"
 profile_keychain_service="tom-wechat-publisher"
 profile_voice_facts=""
+profile_max_han=""
 author_from_env=0
 [[ -n "${WECHAT_AUTHOR:-}" ]] && author_from_env=1
 author_explicit=0
@@ -466,6 +469,7 @@ if [[ "$account_profile" != "default" ]]; then
   profile_app_secret_env="${PROFILE_APP_SECRET_ENV:-WECHAT_APP_SECRET}"
   profile_keychain_service="${PROFILE_KEYCHAIN_SERVICE:-tom-wechat-publisher}"
   profile_voice_facts="${PROFILE_VOICE_FACTS:-}"
+  profile_max_han="${PROFILE_MAX_HAN:-}"
   if [[ "$author_explicit" -eq 0 && "$author_from_env" -eq 0 && -n "${PROFILE_AUTHOR:-}" ]]; then
     author="$PROFILE_AUTHOR"
   fi
@@ -687,6 +691,10 @@ esac
 if [[ "$voice_check_mode" != "off" ]]; then
   voice_facts="${TOM_WECHAT_VOICE_FACTS:-$profile_voice_facts}"
   voice_check_cmd=("$PYTHON" -I "$script_dir/voice_check.py" "$article" --mode "$voice_check_mode")
+  # Body Han cap: the profile's max_han overrides TOM_WECHAT_MAX_HAN (voice_check.py reads it), default 1500.
+  if [[ -n "$profile_max_han" ]]; then
+    voice_check_cmd+=(--max-han "$profile_max_han")
+  fi
   if [[ -n "$voice_facts" ]]; then
     voice_check_cmd+=(--facts "$voice_facts")
   fi

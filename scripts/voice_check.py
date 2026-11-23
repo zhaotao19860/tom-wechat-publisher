@@ -9,10 +9,10 @@ sentences, sections and paragraph endings.
 
 Usage::
 
-    voice_check.py article.md [--facts voice-facts.md] [--json] [--mode warn|block]
+    voice_check.py article.md [--facts voice-facts.md] [--max-han N] [--json] [--mode warn|block]
 
 Findings are either *fails* (stock frames, template H2, unsourced first-person
-claims) or *warns* (everything statistical, plus first-person claims that no
+claims, a body longer than the Han-character cap) or *warns* (everything statistical, plus first-person claims that no
 line of the facts file covers). Exit codes:
 
 * ``block`` (default): 1 when there is at least one fail, else 0.
@@ -23,11 +23,17 @@ The facts file is the account's list of first-person facts the author has
 confirmed, one per line (Markdown bullets, headings and ``>`` notes are
 ignored). A claim sentence is covered when one fact line contains it, or when
 the claim clause shares enough keywords with one fact line.
+
+Length cap: the body's Han characters (front matter, code, images, HTML, URLs
+and everything from the ``## 参考资料`` heading on excluded) must not exceed
+``--max-han``, else ``TOM_WECHAT_MAX_HAN``, else 1500. 0 disables the cap.
+publish_draft.sh passes the account profile's ``max_han`` as ``--max-han``.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import statistics
 import sys
@@ -50,6 +56,7 @@ ENUMERATION_PER_K_MAX = 12.0  # 、 per 1000 Han characters; author blog 9.6
 GLOSS_MIN = 2
 FACT_COVERAGE_MIN = 0.6       # share of claim keywords found in one fact line
 FACT_SHARED_MIN = 2
+DEFAULT_MAX_HAN = 1500        # body Han characters; TOM_WECHAT_MAX_HAN / --max-han override, 0 disables
 
 HAN = re.compile(r"[一-鿿]")
 STOCK = re.compile(
@@ -184,8 +191,21 @@ def _finding(rule: str, message: str) -> dict[str, str]:
     return {"rule": rule, "message": message}
 
 
-def check(raw: str, facts: list[str] | None = None) -> tuple[list[dict], list[dict], dict]:
-    """Return (fails, warns, stats) for one Markdown article."""
+def max_han_limit(value: str | int | None = None) -> int:
+    """The body Han cap: ``value`` (CLI), else TOM_WECHAT_MAX_HAN, else 1500. 0 disables."""
+    for candidate in (value, os.environ.get("TOM_WECHAT_MAX_HAN")):
+        if candidate is None or str(candidate).strip() == "":
+            continue
+        text = str(candidate).strip()
+        if not text.isdigit():
+            raise ValueError(f"max Han characters must be an integer >= 0 (got {candidate!r})")
+        return int(text)
+    return DEFAULT_MAX_HAN
+
+
+def check(raw: str, facts: list[str] | None = None,
+          max_han: int | None = DEFAULT_MAX_HAN) -> tuple[list[dict], list[dict], dict]:
+    """Return (fails, warns, stats) for one Markdown article. ``max_han`` 0 or None: no length cap."""
     facts = facts or []
     text = clean(raw)
     paras = paragraphs(text)
@@ -194,6 +214,12 @@ def check(raw: str, facts: list[str] | None = None) -> tuple[list[dict], list[di
     fails: list[dict] = []
     warns: list[dict] = []
     stats: dict[str, object] = {"han": han, "sentences": len(sents)}
+
+    if max_han and han > max_han:
+        fails.append(_finding(
+            "too_long",
+            f"正文 {han} 汉字，超过上限 {max_han}。整段删掉不在主线上的段落或小节，不要靠压缩句子凑数。",
+        ))
 
     lengths = [han_count(s) for s in sents]
     if len(lengths) >= SENTENCE_MIN_COUNT:
@@ -276,10 +302,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check article shape and first-person claims (stdlib only).")
     parser.add_argument("path", help="article.md")
     parser.add_argument("--facts", help="voice-facts.md: one confirmed first-person fact per line")
+    parser.add_argument("--max-han", help="body Han-character cap (default: TOM_WECHAT_MAX_HAN, else 1500; 0 disables)")
     parser.add_argument("--json", action="store_true", help="print a JSON report")
     parser.add_argument("--mode", choices=("warn", "block"), default="block",
                         help="block exits 1 on fails (default); warn always exits 0")
     args = parser.parse_args(argv)
+
+    try:
+        limit = max_han_limit(args.max_han)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     try:
         raw = Path(args.path).read_text(encoding="utf-8")
@@ -296,10 +329,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"WARNING: cannot read facts file {args.facts}: {exc}; first-person claims are unmatched.",
                   file=sys.stderr)
 
-    fails, warns, stats = check(raw, facts)
+    fails, warns, stats = check(raw, facts, max_han=limit)
     code = exit_code(fails, args.mode)
     if args.json:
-        report = {"path": args.path, "mode": args.mode, "stats": stats, "fails": fails, "warns": warns,
+        report = {"path": args.path, "mode": args.mode, "max_han": limit, "stats": stats, "fails": fails, "warns": warns,
                   "exit_code": code}
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:

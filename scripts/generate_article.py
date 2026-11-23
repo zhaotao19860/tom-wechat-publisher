@@ -83,6 +83,9 @@ PROMPT_TEXT_POLICY = (
     "Leave clean whitespace at the top and near major boxes for external captions."
 )
 
+# Target cap on body Han characters (front matter, code, images and 参考资料 excluded).
+# TOM_WECHAT_MAX_HAN overrides it, 0 disables; voice_check.py's too_long fail enforces
+# the same cap before upload, so the generator only warns.
 MAX_BODY_CHARS = 1500
 MIN_BODY_CHARS = 800
 ILLUSTRATIONS = ("cover", "summary", "flow", "impact", "check", "action", "commands")
@@ -1175,6 +1178,29 @@ def validate_article_ready(markdown: str) -> None:
     body = _strip_markdown_for_prompt(markdown)
     if len(body) < MIN_BODY_CHARS:
         raise RuntimeError(f"generated article body is too short ({len(body)} chars); refusing to build images from a skeleton")
+
+
+def body_han_count(markdown: str) -> int:
+    """Han characters of the body: no front matter, code, images, HTML, URLs or 参考资料 section."""
+    text = re.sub(r"\A---\n.*?\n---\n", "", markdown, flags=re.S)
+    text = re.split(r"^#{2,4}\s*(?:参考资料|参考文档|参考链接|References)\s*$", text, maxsplit=1, flags=re.M)[0]
+    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)|<[^>]+>|`[^`]*`|https?://\S+", "", text)
+    return len(re.findall(r"[\u4e00-\u9fff]", text))
+
+
+def max_body_han() -> int:
+    raw = os.environ.get("TOM_WECHAT_MAX_HAN", "").strip()
+    return int(raw) if raw.isdigit() else MAX_BODY_CHARS
+
+
+def warn_if_too_long(markdown: str) -> None:
+    limit = max_body_han()
+    han = body_han_count(markdown)
+    if limit and han > limit:
+        print(f"[generate-article:length] WARNING body has {han} Han characters, over the {limit} cap; "
+              "cut whole sections that are not the main thread before preview (voice_check.py fails too_long)",
+              file=sys.stderr)
 
 
 def _strip_markdown_for_prompt(text: str) -> str:
@@ -3392,6 +3418,7 @@ def main() -> int:
 
     markdown = _apply_track(markdown, args.track)
     validate_article_ready(markdown)
+    warn_if_too_long(markdown)
     md_path = out_dir / "article.md"
     md_path.write_text(markdown, encoding="utf-8")
     print(f"[generate-article:write] markdown (pre-image) -> {md_path}", file=sys.stderr)

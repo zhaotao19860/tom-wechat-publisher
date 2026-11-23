@@ -289,5 +289,107 @@ class ProfileVoiceFieldTests(unittest.TestCase):
                     account_profile.load_profile("demo")
 
 
+def long_article(han_count: int) -> str:
+    """A body of exactly ``han_count`` Han characters, plus uncounted material."""
+    lines = []
+    left = han_count
+    while left > 0:
+        n = min(40, left)
+        lines.append("字" * n + "。")
+        left -= n
+    body = "\n\n".join(lines)
+    return ("---\ntitle: '标题不算'\n---\n\n" + body
+            + "\n\n```\n代码里的汉字不算代码里的汉字不算\n```\n\n![图片说明不算](a.png)\n"
+            + "\n## 参考资料\n\n- 参考资料里的汉字也不算" + "字" * 500 + "\n")
+
+
+class LengthCapTests(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = mock.patch.dict("os.environ", {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        import os
+        os.environ.pop("TOM_WECHAT_MAX_HAN", None)
+
+    def test_body_count_excludes_frontmatter_code_images_and_references(self) -> None:
+        _, _, stats = voice_check.check(long_article(1500), max_han=1500)
+        self.assertEqual(stats["han"], 1500)
+
+    def test_too_long_fails_over_default_cap(self) -> None:
+        fails, _, _ = voice_check.check(long_article(1501))
+        self.assertIn("too_long", rules(fails))
+        fails, _, _ = voice_check.check(long_article(1500))
+        self.assertNotIn("too_long", rules(fails))
+
+    def test_zero_or_none_disables(self) -> None:
+        for cap in (0, None):
+            fails, _, _ = voice_check.check(long_article(3000), max_han=cap)
+            self.assertNotIn("too_long", rules(fails))
+
+    def test_limit_resolution(self) -> None:
+        import os
+        self.assertEqual(voice_check.max_han_limit(), 1500)
+        os.environ["TOM_WECHAT_MAX_HAN"] = "1200"
+        self.assertEqual(voice_check.max_han_limit(), 1200)
+        self.assertEqual(voice_check.max_han_limit("900"), 900)   # CLI beats env
+        self.assertEqual(voice_check.max_han_limit(""), 1200)
+        os.environ["TOM_WECHAT_MAX_HAN"] = "0"
+        self.assertEqual(voice_check.max_han_limit(), 0)
+        with self.assertRaises(ValueError):
+            voice_check.max_han_limit("-3")
+
+    def run_cli(self, han_count: int, *args: str, env: dict | None = None) -> subprocess.CompletedProcess[str]:
+        import os
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        article = Path(temp.name) / "article.md"
+        article.write_text(long_article(han_count), encoding="utf-8")
+        full_env = {k: v for k, v in os.environ.items() if k != "TOM_WECHAT_MAX_HAN"}
+        full_env.update(env or {})
+        return subprocess.run([sys.executable, "-I", str(SCRIPTS / "voice_check.py"), str(article), "--json", *args],
+                              capture_output=True, text=True, env=full_env)
+
+    def test_cli_env_and_flag(self) -> None:
+        over = self.run_cli(1600)
+        self.assertEqual(over.returncode, 1)
+        report = json.loads(over.stdout)
+        self.assertEqual(report["max_han"], 1500)
+        self.assertIn("too_long", rules(report["fails"]))
+        self.assertEqual(self.run_cli(1600, env={"TOM_WECHAT_MAX_HAN": "2000"}).returncode, 0)
+        self.assertEqual(self.run_cli(1600, env={"TOM_WECHAT_MAX_HAN": "0"}).returncode, 0)
+        self.assertEqual(self.run_cli(1600, "--max-han", "1000", env={"TOM_WECHAT_MAX_HAN": "2000"}).returncode, 1)
+        self.assertEqual(self.run_cli(10, "--max-han", "abc").returncode, 2)
+
+
+class ProfileMaxHanTests(unittest.TestCase):
+    def write_profile(self, directory: Path, extra: dict) -> None:
+        data = {"id": "demo", "track": "dns", **extra}
+        (directory / "demo.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    def test_default_unset_and_exported_empty(self) -> None:
+        self.assertIsNone(account_profile.load_profile("default")["max_han"])
+        self.assertEqual(account_profile.shell_values(account_profile.load_profile("medical"))["PROFILE_MAX_HAN"], "")
+
+    def test_value_is_validated_and_exported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            with mock.patch.object(account_profile, "PROFILE_DIR", directory):
+                self.write_profile(directory, {"max_han": 1200})
+                self.assertEqual(account_profile.shell_values(account_profile.load_profile("demo"))["PROFILE_MAX_HAN"], "1200")
+                self.write_profile(directory, {"max_han": 0})
+                self.assertEqual(account_profile.load_profile("demo")["max_han"], 0)
+                for bad in (-1, "1500", True, 1.5):
+                    self.write_profile(directory, {"max_han": bad})
+                    with self.assertRaises(account_profile.ProfileError):
+                        account_profile.load_profile("demo")
+
+
+class GenerateLengthTests(unittest.TestCase):
+    def test_generate_counts_body_like_voice_check(self) -> None:
+        import generate_article
+        text = long_article(1234)
+        self.assertEqual(generate_article.body_han_count(text), voice_check.check(text, max_han=0)[2]["han"])
+
+
 if __name__ == "__main__":
     unittest.main()

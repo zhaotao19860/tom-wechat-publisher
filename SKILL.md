@@ -23,6 +23,7 @@ The skill supports more than one WeChat Official Account. Each account is a JSON
 - A dedicated profile history root is created on first generate-mode run so medical topic de-duplication never mixes with technical articles.
 - `accounts/*.json` must contain no secrets. Store credentials in environment variables or the account's Keychain service.
 - Optional `voice` and `voice_facts` name the account's voice card and confirmed first-person fact list. They usually live outside the repo, for example `~/.tom-wechat-autopilot/accounts/dns/voice.md` and `voice-facts.md`; `~` is expanded and relative paths resolve against `accounts/`. A path that is set but missing fails closed. They are exported as `PROFILE_VOICE` / `PROFILE_VOICE_FACTS`, and `voice_facts` feeds `voice_check.py --facts`.
+- Optional `max_han` (integer ≥ 0, default unset) is the account's body Han-character cap for `voice_check.py`'s `too_long` fail; unset means `TOM_WECHAT_MAX_HAN`, else 1500, and 0 disables the cap. It is exported as `PROFILE_MAX_HAN` and passed as `--max-han`.
 - Optional `image_backend` (`comate`, `openai`, `gemini`, `command`) picks that account's AI image backend. `accounts/medical.json` leaves it empty, which means the env var or the `comate` default decides. See 图片后端.
 
 ## Scope
@@ -216,8 +217,9 @@ Every article this skill writes, rewrites, or polishes must go through the `huma
 1. Load `human-writing`, then load `references/forum-prose.md` and `references/reality.md` for source-grounded technical articles.
 2. Count concrete material. A 1200-plus-character Chinese article needs at least five specific items with a traceable origin, and they must form one real process rather than five adjacent opinions.
 3. When material is short, search first, then ask the user at most three questions, then shorten the article. Never pad with restated points, invented examples, or hypothetical people.
-4. Fix the speaking position. Decide what the author actually knows, what is inference, and where the judgment stops.
-5. If the account profile or the caller supplies a voice card (for example `voice.md`) and a first-person fact list, load them after human-writing. The voice card overrides human-writing's default tone, its forum-prose examples, and its "no author profile" clause, because it is the user's explicit tone instruction. Only facts on the first-person list, or facts the user stated in this conversation, may be written with 我. Commands the agent ran are reported without 我.
+4. Plan for at most 1500 Han characters of body text (front matter, code blocks, image lines and everything from `## 参考资料` on are not counted; `TOM_WECHAT_MAX_HAN` or the account profile's `max_han` changes the cap, 0 removes it). Pick one main thread and drop the side topics before writing: two or three sections, little background, no history lesson the reader already knows. When a draft runs long, delete whole paragraphs or sections that are not on the main thread instead of squeezing every sentence.
+5. Fix the speaking position. Decide what the author actually knows, what is inference, and where the judgment stops.
+6. If the account profile or the caller supplies a voice card (for example `voice.md`) and a first-person fact list, load them after human-writing. The voice card overrides human-writing's default tone, its forum-prose examples, and its "no author profile" clause, because it is the user's explicit tone instruction. Only facts on the first-person list, or facts the user stated in this conversation, may be written with 我. Commands the agent ran are reported without 我.
 
 ### While drafting
 
@@ -253,7 +255,7 @@ python3 -I ~/.comate/skills/tom-wechat-publisher/scripts/voice_check.py /absolut
   --facts /absolute/path/voice-facts.md
 ```
 
-`voice_check.py` counts what check_prose.py cannot see. Fails (需要修改) are stock frames such as 我原本以为 / 写得很硬 / 到这里为止, conclusion-style H2 such as 「A，B 才 C」, and first-person claims with no possible source such as 我第一件事就是 / 我见过的人. Warns (需要人工判断) are first-person experiences that no line of the fact list covers, sentence-length CV below 0.55, section-length CV below 0.45, more than 4 H2, no question mark in an article over 1200 Han characters, more than half of the paragraphs closing on a short verdict, dense 、 lists, and glossing terms for peers. Add `--json` for a machine-readable report. Standalone it defaults to `--mode block` (exit 1 on fails); the wrapper passes the mode from `TOM_WECHAT_VOICE_CHECK`.
+`voice_check.py` counts what check_prose.py cannot see. Fails (需要修改) are stock frames such as 我原本以为 / 写得很硬 / 到这里为止, conclusion-style H2 such as 「A，B 才 C」, first-person claims with no possible source such as 我第一件事就是 / 我见过的人, and `too_long`: a body over the Han-character cap (`--max-han`, else the profile's `max_han` passed by the wrapper, else `TOM_WECHAT_MAX_HAN`, else 1500; 0 disables). Warns (需要人工判断) are first-person experiences that no line of the fact list covers, sentence-length CV below 0.55, section-length CV below 0.45, more than 4 H2, no question mark in an article over 1200 Han characters, more than half of the paragraphs closing on a short verdict, dense 、 lists, and glossing terms for peers. Add `--json` for a machine-readable report. Standalone it defaults to `--mode block` (exit 1 on fails); the wrapper passes the mode from `TOM_WECHAT_VOICE_CHECK`.
 
 The wrapper runs voice_check.py right after check_prose.py:
 
